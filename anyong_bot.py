@@ -83,7 +83,10 @@ ADMIN_IDS: list[int] = [
 ]
 
 TH_TZ = ZoneInfo("Asia/Bangkok")
-KEEP_ALIVE_PORT = int(os.environ.get("KEEP_ALIVE_PORT", "8099"))
+# Render (and most PaaS) inject the public port via $PORT; fall back to 8099.
+KEEP_ALIVE_PORT = int(
+    os.environ.get("KEEP_ALIVE_PORT") or os.environ.get("PORT") or "8099"
+)
 ITEMS_PER_PAGE = 5
 
 # Conversation states
