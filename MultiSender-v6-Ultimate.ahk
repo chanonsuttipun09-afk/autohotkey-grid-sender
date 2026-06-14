@@ -864,7 +864,7 @@ EmergencyStop(*) {
  global isSending
  isSending := false
  SetStatus("🛑 EMERGENCY STOPPED", "EF4444")
- AddLog("🛑 หยุดฉุกเฉิน หยุด\)
+ AddLog("🛑 หยุดฉุกเฉิน หยุด")
 }
 
 SetStatus(txt, col) {
