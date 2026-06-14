@@ -74,7 +74,7 @@ n := Integer(IniRead(CONFIG_FILE, "Win", "count", "0"))
  webhookURL := IniRead(CONFIG_FILE, "Features", "webhookURL", "")
  webhookEnabled := Integer(IniRead(CONFIG_FILE, "Features", "webhookEnabled", "0"))
  passwordProtection := Integer(IniRead(CONFIG_FILE, "Features","passwordProtection", "0"))
- masterPassword := IniRead(CONFIG_FILE, "Features", "masterPassword", """)
+ masterPassword := IniRead(CONFIG_FILE, "Features", "masterPassword", "")
  
  } catch {
  followers := []
@@ -347,7 +347,6 @@ G.SetFont("s10 Bold c" GRN, "Segoe UI")
 statsCountCtrl := G.AddText("x" (PAD+10) " y" (PAD+105) " w400 h30 Background" BG2 " c" GRN, "📊 ส่งทั้งหมด: 0 ทั้งหมด")
 statsSuccessCtrl := G.AddText("x" (PAD+10) " y+5 w400 h30 Background" BG2 " c" GRN, "✅ สำเร็จ : 0 เท่านั้น")
 statsFailCtrl := G.AddText("x" (PAD+10) " y+5 w400 h30 Background" BG2 " c" RED, "❌ ตอนนี้: 0 จริง")
-statsRateCtrl := G.AddText("x" (PAD+10) " y+5 w400 h30 Background" BG2 " c" YEL,"📈 อัตราสำเร็จ: 0%")
 
 btnResetStats := G.AddButton("x" (PAD+10) " y+5 w100 h25 +0x200 c" RED, "🔄 รีเซต")
 btnResetStats.OnEvent("Click", ResetStats)
@@ -470,13 +469,12 @@ StopScheduler(*) {
 }
 
 ; ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี ฟังก์ชั่นสถิติ
-; ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี statsCountCtrl.Value := "📊 ส่งทั้งหมด: " sendStats.count " จริง"
+UpdateStats() {
+ global sendStats, statsCountCtrl, statsSuccessCtrl, statsFailCtrl, statsDisplay
+ statsCountCtrl.Value := "📊 ส่งทั้งหมด: " sendStats.count " จริง"
  statsSuccessCtrl.Value := "✅ สำเร็จ: " sendStats.success "ส่วน"
  statsFailCtrl.Value := "❌ โครงสร้าง: " sendStats.failed "ส่วนภายนอก"
- 
- อัตรา := (sendStats.count = 0) ? 0 : Round((sendStats.success / sendStats.count) * 100)
- statsRateCtrl.Value := "📈 อัตราสำเร็จ: " อัตรา "%"
- 
+
  statsDisplay.Value := "✓" sendStats.success " ✗" sendStats.failed
 }
 
@@ -872,50 +870,6 @@ SetStatus(txt, col) {
  statusText.Value := txt
  statusText.SetFont("c" col)
  statusDot.SetFont("c" col)
-}
-
-AddLog(txt) {
- global logBox
- current := logBox.Value
- logBox.Value := current "[" FormatTime(,"HH:mm:ss") "] " txt "`r`n"
- SendMessage(0x115, 7, 0, logBox.Hwnd)
-}
-
-Flash(txt) {
- ToolTip txt
- SetTimer () => ToolTip(), -2000
-}
-
-; ════════════════════════════════════════
-; ⌨️ ปุ่มลัด
-; ═════════════════════════════════════════
-$F1::ManualSendAction() 
-$F2::EmergencyStop() 
-F4::ExitApp() 
-F6::AddFollower()
-",SetFont("c" col)
-}
-
-AddLog(txt) {
- global logBox
- current := logBox.Value
- logBox.Value := current "[" FormatTime(,"HH:mm:ss") "] " txt "`r`n"
- SendMessage(0x115, 7, 0, logBox.Hwnd)
-}
-
-Flash(txt) {
- ToolTip txt
- SetTimer () => ToolTip(), -2000
-}
-
-; ════════════════════════════════════════
-; ⌨️ ปุ่มลัด
-; ═════════════════════════════════════════
-$F1::ManualSendAction() 
-$F2::EmergencyStop() 
-F4::ExitApp() 
-F6::AddFollower()
-",SetFont("c" col)
 }
 
 AddLog(txt) {
