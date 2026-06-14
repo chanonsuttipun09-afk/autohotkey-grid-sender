@@ -95,7 +95,7 @@ OnMessage(0x0201, WM_LBUTTONDOWN)
 ApplyHotkeys()
 
 SetTimer FetchGeoIP, -100
-SetTimer EngineLEDTicker, 200
+SetTimer EngineLEDTicker, 1000
 SetTimer UpdateNetworkTelemetry, 1000
 
 if schedulerEnabled
@@ -261,9 +261,9 @@ BuildGui() {
 
     ; ─── ROW 1: HEADER & SYSTEM TITLE ───
     G.SetFont("s10 Bold", "Segoe UI Semibold")
-    G.AddText("x12 y12 w110 h20 Background" C.BG " c" C.ACC, "❖ NEO SENDER")
+    G.AddText("x12 y12 w120 h20 Background" C.BG " c" C.ACC, "🐾 IKU SENDER")
     G.SetFont("s8 Bold", "Segoe UI")
-    G.AddText("x125 y14 w100 h16 Background" C.BG " c" C.RED, "LED CLOCK v9.8")
+    G.AddText("x132 y14 w95 h16 Background" C.BG " c" C.RED, "♡ cutie LED")
 
     ; ─── 🕒 REAL-TIME CYBER TIME HUD ───
     G.AddText("x230 y6 w240 h42 +Background" C.BG2, "")
@@ -277,8 +277,8 @@ BuildGui() {
     btnChangeTz := G.AddButton("x230 y6 w240 h42 +BackgroundTrans -Theme", "")
     btnChangeTz.OnEvent("Click", CycleTimeZone)
 
-    G.AddButton("x482 y12 w18 h18 c" C.ACC, "↺").OnEvent("Click", (*) => Reload())
-    G.AddButton("x508 y12 w18 h18 c" C.RED, "✕").OnEvent("Click", (*) => ExitApp())
+    G.AddButton("x482 y12 w18 h18 c" C.ACC, "🔄").OnEvent("Click", (*) => Reload())
+    G.AddButton("x508 y12 w18 h18 c" C.RED, "❌").OnEvent("Click", (*) => ExitApp())
 
     G.OnEvent("Size", (*) => WinSetRegion("0-0 w" UI_W " h" UI_H " r6-6", G.Hwnd))
 
@@ -297,15 +297,15 @@ BuildGui() {
     G.SetFont("s8 Bold", "Segoe UI")
     G.AddText("x180 y80 w65 h14 Background" C.BG " c" C.FG2 " Right", "［🎯 จอหลัก］")
     masterLabel := G.AddText("x250 y80 w180 h14 Background" C.BG " c" C.FG, master = "" ? "— STANDBY —" : ShortId(master))
-    G.AddButton("x445 y78 w80 h18 c" C.ACC, "LOCK F5").OnEvent("Click", SetMaster)
+    G.AddButton("x445 y78 w80 h18 c" C.ACC, "🔒 ล็อก F5").OnEvent("Click", SetMaster)
 
     ; ─── ROW 4: TARGET MANAGEMENT BUTTONS ───
     G.AddText("x" PAD " y98 w" COMP_W " h1 Background" C.LINE, "")
     G.SetFont("s8", "UI Semibold")
     followerLabel := G.AddText("x12 y103 w170 h16 Background" C.BG " c" C.RED, "👥 ล็อกไว้ " followers.Length " จอ")
 
-    G.AddButton("x200 y101 w100 h19 c" C.ACC, "＋ เพิ่ม (F6)").OnEvent("Click", AddFollower)
-    G.AddButton("x310 y101 w100 h19 c" C.RED, "🧹 ล้างลูก").OnEvent("Click", ClearFollowers)
+    G.AddButton("x200 y101 w100 h19 c" C.ACC, "➕ เพิ่มจอ (F6)").OnEvent("Click", AddFollower)
+    G.AddButton("x310 y101 w100 h19 c" C.RED, "🧹 ล้างจอ").OnEvent("Click", ClearFollowers)
     G.AddButton("x420 y101 w105 h19 c" C.YEL, "💾 เซฟโครง").OnEvent("Click", (*) => (SaveConfig(), Flash("💾 บันทึกแล้ว")))
 
     ; ─── ROW 5: MESSAGE INPUT EDITOR ───
@@ -324,14 +324,14 @@ BuildGui() {
 
     progress := G.AddProgress("x130 y197 w100 h8 c" C.RED " Background" C.BG2 " Smooth", 0)
 
-    G.AddButton("x250 y190 w90 h22 c" C.RED, "🚀 ส่ง (F1)").OnEvent("Click", StartSendEngine)
-    G.AddButton("x345 y190 w90 h22 c" C.GRN, "🧩 จัดหน้า").OnEvent("Click", ArrangeWindowsGrid)
-    G.AddButton("x440 y190 w85 h22 c" C.RED, "🛑 หยุด (F3)").OnEvent("Click", StopSendEngine)
+    G.AddButton("x250 y190 w90 h22 c" C.RED, "💌 ส่งเลย (F1)").OnEvent("Click", StartSendEngine)
+    G.AddButton("x345 y190 w90 h22 c" C.GRN, "🪟 จัดจอ").OnEvent("Click", ArrangeWindowsGrid)
+    G.AddButton("x440 y190 w85 h22 c" C.RED, "✋ หยุด (F3)").OnEvent("Click", StopSendEngine)
 
     ; ─── ROW 7: MINI STATUS LINE ───
     G.AddText("x" PAD " y220 w" COMP_W " h1 Background" C.LINE, "")
     G.SetFont("s8", "UI Semibold")
-    miniLogText := G.AddText("x12 y226 w510 h14 Background" C.BG " c" C.FG2, "[LOGS] ระบบพร้อมทำงาน...")
+    miniLogText := G.AddText("x12 y226 w510 h14 Background" C.BG " c" C.FG2, "🐾 Iku พร้อมลุยแล้วน้า~ ✨")
 
     ; ─── ROW 8: 📊 STATS & ⚙️ V6 CONTROLS ───
     G.AddText("x" PAD " y244 w" COMP_W " h1 Background" C.LINE, "")
@@ -340,6 +340,8 @@ BuildGui() {
     G.SetFont("s8 Bold", "Segoe UI")
     G.AddButton("x300 y248 w105 h22 c" C.ACC, "⚙️ ตั้งค่า v6").OnEvent("Click", (*) => OpenSettings())
     G.AddButton("x410 y248 w115 h22 c" C.FG2, "📂 ประวัติ").OnEvent("Click", (*) => OpenHistoryViewer())
+    G.SetFont("s7.5", "Segoe UI")
+    G.AddText("x12 y274 w513 h14 Background" C.BG " c" C.FG2 " Center", "🐾 made with love by Iku  •  ♡ stay cute ♡")
 
     G.Show("w" UI_W " h" UI_H)
     WinSetTransparent(245, G.Hwnd)
@@ -357,13 +359,11 @@ WM_LBUTTONDOWN(wParam, lParam, msg, hwnd) {
 ;    ⏱️ REALTIME DIGITAL LED TICKER ENGINE
 ; ══════════════════════════════════════════
 EngineLEDTicker() {
-    global clockLedDisp, tzList, tzIndex, ledBlink
+    global clockLedDisp, tzList, tzIndex
     targetTime := DateAdd(A_Now, tzList[tzIndex].offset, "Hours")
-    ledBlink := !ledBlink
-    splitter := ledBlink ? ":" : " "
-    hh := FormatTime(targetTime, "HH")
-    mm := FormatTime(targetTime, "mm")
-    clockLedDisp.Value := hh splitter mm
+    newVal := FormatTime(targetTime, "HH:mm")
+    if (clockLedDisp.Value != newVal)
+        clockLedDisp.Value := newVal
 }
 
 CycleTimeZone(*) {
@@ -513,28 +513,49 @@ ArrangeWindowsGrid(*) {
         return
     }
 
-    MonitorGetWorkArea(1, &M_L, &M_T, &M_R, &M_B)
-    screenW := M_R - M_L
-    screenH := M_B - M_T
-
-    cols := Ceil(Sqrt(totalCount))
-    rows := Ceil(totalCount / cols)
-
-    winW := Floor((screenW - (MARGIN_WIN * (cols + 1))) / cols)
-    winH := Floor((screenH - (MARGIN_WIN * (rows + 1))) / rows)
-
-    movedCount := 0
-    for idx, id in allWins {
-        WinRestore(id)
-        colIdx := Mod(movedCount, cols)
-        rowIdx := Floor(movedCount / cols)
-        X := M_L + MARGIN_WIN + (colIdx * (winW + MARGIN_WIN))
-        Y := M_T + MARGIN_WIN + (rowIdx * (winH + MARGIN_WIN))
-        WinMove(X, Y, winW, winH, id)
-        movedCount++
+    ; เรียงลำดับจอ: จอหลัก (screen 1) ก่อน แล้วค่อยจอรอง (screen 2, 3, ...)
+    monCount := MonitorGetCount()
+    primary  := MonitorGetPrimary()
+    monOrder := [primary]
+    Loop monCount {
+        if (A_Index != primary)
+            monOrder.Push(A_Index)
     }
-    SetStatus("🧩 จัดเรียง " movedCount " จอแล้ว", "00F0FF")
-    UpdateMiniLog("Grid จัดหน้าจอแบบ: " cols "x" rows)
+
+    perMon     := Ceil(totalCount / monCount)
+    movedCount := 0
+    Loop monOrder.Length {
+        startI := (A_Index - 1) * perMon + 1
+        if (startI > totalCount)
+            break
+        endI      := Min(startI + perMon - 1, totalCount)
+        countThis := endI - startI + 1
+        mon       := monOrder[A_Index]
+
+        MonitorGetWorkArea(mon, &M_L, &M_T, &M_R, &M_B)
+        screenW := M_R - M_L
+        screenH := M_B - M_T
+
+        cols := Ceil(Sqrt(countThis))
+        rows := Ceil(countThis / cols)
+        winW := Floor((screenW - (MARGIN_WIN * (cols + 1))) / cols)
+        winH := Floor((screenH - (MARGIN_WIN * (rows + 1))) / rows)
+
+        li := 0
+        Loop countThis {
+            id := allWins[startI + li]
+            WinRestore(id)
+            colIdx := Mod(li, cols)
+            rowIdx := Floor(li / cols)
+            X := M_L + MARGIN_WIN + (colIdx * (winW + MARGIN_WIN))
+            Y := M_T + MARGIN_WIN + (rowIdx * (winH + MARGIN_WIN))
+            WinMove(X, Y, winW, winH, id)
+            li++
+            movedCount++
+        }
+    }
+    SetStatus("🧩 จัดเรียง " movedCount " จอ / " monCount " หน้าจอ", "00F0FF")
+    UpdateMiniLog("🐾 Iku จัดหน้าจอข้ามจอ 1→" monCount " + ปรับขนาดเรียบร้อย")
 }
 
 StartSendEngine(*) {
