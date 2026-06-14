@@ -49,6 +49,46 @@ customHotkeys := {}
 followers := []
 
 ; ══════════════════════════════════════════════════════════
+; 🔧 Shared Utility Functions
+; ══════════════════════════════════════════════════════════
+
+IniReadInt(file, section, key, default := "0") {
+    return Integer(IniRead(file, section, key, default))
+}
+
+DeleteIfExists(filepath) {
+    if FileExist(filepath)
+        FileDelete(filepath)
+}
+
+HttpGet(url, timeout := 5) {
+    whr := ComObject("WinHttp.WinHttpRequest.5.1")
+    whr.Open("GET", url, true)
+    whr.Send()
+    whr.WaitForResponse(timeout)
+    return whr
+}
+
+HttpPost(url, body, contentType := "application/json", timeout := 5) {
+    whr := ComObject("WinHttp.WinHttpRequest.5.1")
+    whr.Open("POST", url, true)
+    whr.SetRequestHeader("Content-Type", contentType)
+    whr.Send(body)
+    whr.WaitForResponse(timeout)
+    return whr
+}
+
+WrapWinIdx() {
+    global currentWinIdx, followers
+    if (currentWinIdx > followers.Length)
+        currentWinIdx := 1
+}
+
+Timestamp(fmt := "yyyy-MM-dd HH:mm:ss") {
+    return FormatTime(, fmt)
+}
+
+; ══════════════════════════════════════════════════════════
 ; 💾 กำลังโหลดและบันทึกการตั้งค่า
 ; ════════════════════════════════════════════════════════════
 
@@ -60,20 +100,20 @@ LoadConfig() {
  if !FileExist(CONFIG_FILE)
  return
  try {
-n := Integer(IniRead(CONFIG_FILE, "Win", "count", "0"))
+n := IniReadInt(CONFIG_FILE, "Win", "count")
  Loop n {
  val := IniRead(CONFIG_FILE, "Win", "f" A_Index, "")
  if (val != "")
  followers.Push(val)
  }
  
- schedulerInterval := Integer(IniRead(CONFIG_FILE, "Features", "schedulerInterval", "5000"))
- repeatCount := Integer(IniRead(CONFIG_FILE, "Features", "repeatCount", "1"))
- randomDelayMin := Integer(IniRead(CONFIG_FILE, "Features", "randomDelayMin", "0"))
- randomDelayMax := Integer(IniRead(CONFIG_FILE, "Features", "randomDelayMax", "1000"))
+ schedulerInterval := IniReadInt(CONFIG_FILE, "Features", "schedulerInterval", "5000")
+ repeatCount := IniReadInt(CONFIG_FILE, "Features", "repeatCount", "1")
+ randomDelayMin := IniReadInt(CONFIG_FILE, "Features", "randomDelayMin")
+ randomDelayMax := IniReadInt(CONFIG_FILE, "Features", "randomDelayMax", "1000")
  webhookURL := IniRead(CONFIG_FILE, "Features", "webhookURL", "")
- webhookEnabled := Integer(IniRead(CONFIG_FILE, "Features", "webhookEnabled", "0"))
- passwordProtection := Integer(IniRead(CONFIG_FILE, "Features","passwordProtection", "0"))
+ webhookEnabled := IniReadInt(CONFIG_FILE, "Features", "webhookEnabled")
+ passwordProtection := IniReadInt(CONFIG_FILE, "Features", "passwordProtection")
  masterPassword := IniRead(CONFIG_FILE, "Features", "masterPassword", """)
  
  } catch {
@@ -86,8 +126,7 @@ SaveConfig() {
  global randomDelayMax, webhookURL, webhookEnabled, passwordProtection, masterPassword
  
  try {
- if FileExist(CONFIG_FILE)
- FileDelete(CONFIG_FILE)
+ DeleteIfExists(CONFIG_FILE)
  
  IniWrite(followers.Length, CONFIG_FILE, "Win", "count")
  Loop followers.Length
@@ -108,7 +147,7 @@ SaveConfig() {
 LoadTheme() {
  global isDarkMode, THEME_FILE
  if FileExist(THEME_FILE) {
- isDarkMode := Integer(IniRead(THEME_FILE, "Theme", "darkMode", "1"))
+ isDarkMode := IniReadInt(THEME_FILE, "Theme", "darkMode", "1")
  }
 }
 
@@ -133,8 +172,7 @@ LoadMessages() {
 SaveMessages(txt) {
  global MSG_FILE
  ลอง {
- if FileExist(MSG_FILE)
- FileDelete(MSG_FILE)
+ DeleteIfExists(MSG_FILE)
  FileAppend(Trim(txt, "`r`n "), MSG_FILE, "UTF-8")
  }
 }
@@ -142,7 +180,7 @@ SaveMessages(txt) {
 AddToHistory(windowIdx, ข้อความ, ความสำเร็จ) {
  global sendHistory, HISTORY_FILE, sendStats
  
- การประทับเวลา := FormatTime(, "yyyy-MM-dd HH:mm:ss")
+ การประทับเวลา := Timestamp()
  entry := timestamp " | Window:" windowIdx " | " (สำเร็จ ? "✓" : "✗") " | " ข้อความ
  
  sendHistory.Push(entry)
@@ -166,7 +204,7 @@ AddToHistory(windowIdx, ข้อความ, ความสำเร็จ) {
  ถ้า !FileExist(HOTKEY_FILE)
  ส่งคืน
  ลอง {
-n := Integer(IniRead(HOTKEY_FILE, "Hotkeys", "count", "0"))
+n := IniReadInt(HOTKEY_FILE, "Hotkeys", "count")
  วนลูป n {
  key := IniRead(HOTKEY_FILE, "Hotkeys", "key" A_Index, "")
  การกระทำ := IniRead(HOTKEY_FILE, "Hotkeys", "action" A_Index, "")
@@ -493,8 +531,7 @@ ResetStats(*) {
 ClearHistory(*) {
  global sendHistory, HISTORY_FILE, historyBox
  sendHistory := []
- if FileExist(HISTORY_FILE)
- FileDelete(HISTORY_FILE)
+ DeleteIfExists(HISTORY_FILE)
  historyBox.ค่า := ""
  AddLog("🗑️ ล้างประวัติแล้ว")
 }
@@ -502,7 +539,7 @@ ClearHistory(*) {
 ExportHistory(*) {
  global sendHistory
  
- filepath := A_MyDocuments "\send_history_" FormatTime(, "yyyyMMdd_HHmmss") ".txt"
+ filepath := A_MyDocuments "\send_history_" Timestamp("yyyyMMdd_HHmmss") ".txt"
  content := ""
  for entry in sendHistory
  content .= entry "`r`n"
@@ -525,8 +562,7 @@ SaveSettings(*) {
  global customHotkeys, hotkeyF1Ctrl, hotkeyF6Ctrl, hotkeyF2Ctrl, HOTKEY_FILE
  
  try {
- if FileExist(HOTKEY_FILE)
- FileDelete(HOTKEY_FILE)
+ DeleteIfExists(HOTKEY_FILE)
  
  IniWrite("3", HOTKEY_FILE, "Hotkeys", "count")
  IniWrite(hotkeyF1Ctrl.Value, HOTKEY_FILE, "Hotkeys", "key1")
@@ -555,7 +591,7 @@ ResetHotkeys(*) {
 
 UpdateClock() {
  global clockDisplay
- clockDisplay.Value := FormatTime(, "HH:mm:ss")
+ clockDisplay.Value := Timestamp("HH:mm:ss")
 }
 
 BlinkLED() {
@@ -571,10 +607,7 @@ BlinkLED() {
 FetchGeoIP() {
  global ipGeoDisplay
  try {
- whr := ComObject("WinHttp.WinHttpRequest.5.1")
- whr.Open("GET", "http://ip-api.com/json/?fields=status,countryCode,regionName,query", true)
- whr.Send()
- whr.WaitForResponse(5)
+ whr := HttpGet("http://ip-api.com/json/?fields=status,countryCode,regionName,query")
  if (whr.Status == 200) {
  res := whr.ResponseText
  if InStr(res, '"status":"success"') {
@@ -760,16 +793,14 @@ t := Trim(A_LoopField)
  webhookEnabled := webhookModeCtrl.Value
  webhookURL := webhookURLCtrl.Value
 
- if (currentWinIdx > followers.Length)
- currentWinIdx := 1
+ WrapWinIdx()
  
  targetID := followers[currentWinIdx]
  
  if !WinExist(targetID) {
  AddLog("⚠️ ค้างที่ [" currentWinIdx "] ปิดอยู่.. กำลังข้าม")
  currentWinIdx++
- if (currentWinIdx > followers.Length)
- currentWinIdx := 1
+ WrapWinIdx()
  return
  }
 
@@ -800,8 +831,7 @@ t := Trim(A_LoopField)
  }
  
  currentWinIdx++
- ถ้า (currentWinIdx > followers.Length)
- currentWinIdx := 1
+ WrapWinIdx()
  
  UpdateStatusLabel()
  isSending := false
@@ -816,7 +846,6 @@ SendMessage_Internal(targetID, chosenMsg, windowIdx, loopNum) {
  WinActivate(targetID)
  ถ้า !WinWaitActive(targetID,, 2) {
  AddToHistory(windowIdx, chosenMsg, false)
- sendStats.failed++
  ส่งคืน
  }
  พัก 80 วินาที
@@ -850,13 +879,8 @@ SendMessage_Internal(targetID, chosenMsg, windowIdx, loopNum) {
 SendWebhook(windowIdx, message, success) {
  global webhookURL
  try {
- whr := ComObject("WinHttp.WinHttpRequest.5.1")
- whr.Open("POST", webhookURL, true)
- whr.SetRequestHeader("Content-Type", "application/json")
- 
- payload := '{"window":' windowIdx ',"message":"' StrReplace(message, """", "\""") '","success":' (success ? "true" : "false") ',"timestamp":"' FormatTime(, "yyyy-MM-dd HH:mm:ss") '"}'
- whr.Send(payload)
- whr.WaitForResponse(3)
+ payload := '{"window":' windowIdx ',"message":"' StrReplace(message, """", "\""") '","success":' (success ? "true" : "false") ',"timestamp":"' Timestamp() '"}'
+ HttpPost(webhookURL, payload,, 3)
  }
 }
 
@@ -877,51 +901,7 @@ SetStatus(txt, col) {
 AddLog(txt) {
  global logBox
  current := logBox.Value
- logBox.Value := current "[" FormatTime(,"HH:mm:ss") "] " txt "`r`n"
- SendMessage(0x115, 7, 0, logBox.Hwnd)
-}
-
-Flash(txt) {
- ToolTip txt
- SetTimer () => ToolTip(), -2000
-}
-
-; ════════════════════════════════════════
-; ⌨️ ปุ่มลัด
-; ═════════════════════════════════════════
-$F1::ManualSendAction() 
-$F2::EmergencyStop() 
-F4::ExitApp() 
-F6::AddFollower()
-",SetFont("c" col)
-}
-
-AddLog(txt) {
- global logBox
- current := logBox.Value
- logBox.Value := current "[" FormatTime(,"HH:mm:ss") "] " txt "`r`n"
- SendMessage(0x115, 7, 0, logBox.Hwnd)
-}
-
-Flash(txt) {
- ToolTip txt
- SetTimer () => ToolTip(), -2000
-}
-
-; ════════════════════════════════════════
-; ⌨️ ปุ่มลัด
-; ═════════════════════════════════════════
-$F1::ManualSendAction() 
-$F2::EmergencyStop() 
-F4::ExitApp() 
-F6::AddFollower()
-",SetFont("c" col)
-}
-
-AddLog(txt) {
- global logBox
- current := logBox.Value
- logBox.Value := current "[" FormatTime(,"HH:mm:ss") "] " txt "`r`n"
+ logBox.Value := current "[" Timestamp("HH:mm:ss") "] " txt "`r`n"
  SendMessage(0x115, 7, 0, logBox.Hwnd)
 }
 
