@@ -2,6 +2,7 @@
 
 ; ═══════════════════════════════════════════════════════════
 ; Test Runner - executes each test suite as a subprocess
+; and pipes per-suite stdout back to the caller.
 ; ═══════════════════════════════════════════════════════════
 
 testDir := A_ScriptDir
@@ -21,6 +22,8 @@ suites := [
 totalFailed := 0
 FileAppend("═══ MultiSender Test Suite ═══`n", "*")
 
+shell := ComObject("WScript.Shell")
+
 for suite in suites {
     path := testDir "\" suite
     if !FileExist(path) {
@@ -30,8 +33,24 @@ for suite in suites {
 
     try {
         cmd := '"' ahkExe '" /ErrorStdOut "' path '"'
-        result := RunWait(cmd,, "Hide")
-        if (result != 0)
+        proc := shell.Exec(cmd)
+        proc.StdIn.Close()
+
+        stdout := ""
+        while !proc.StdOut.AtEndOfStream
+            stdout .= proc.StdOut.ReadLine() "`n"
+        stderr := ""
+        while !proc.StdErr.AtEndOfStream
+            stderr .= proc.StdErr.ReadLine() "`n"
+
+        if (stdout != "")
+            FileAppend(stdout, "*")
+        if (stderr != "")
+            FileAppend(stderr, "*")
+
+        while proc.Status = 0
+            Sleep 50
+        if (proc.ExitCode != 0)
             totalFailed++
     } catch as e {
         FileAppend("ERROR running " suite ": " e.Message "`n", "*")
