@@ -114,7 +114,7 @@ n := IniReadInt(CONFIG_FILE, "Win", "count")
  webhookURL := IniRead(CONFIG_FILE, "Features", "webhookURL", "")
  webhookEnabled := IniReadInt(CONFIG_FILE, "Features", "webhookEnabled")
  passwordProtection := IniReadInt(CONFIG_FILE, "Features", "passwordProtection")
- masterPassword := IniRead(CONFIG_FILE, "Features", "masterPassword", """)
+ ; masterPassword is no longer persisted — prompt per session to avoid plaintext storage
  
  } catch {
  followers := []
@@ -139,7 +139,7 @@ SaveConfig() {
  IniWrite(webhookURL, CONFIG_FILE, "Features", "webhookURL")
  IniWrite(webhookEnabled, CONFIG_FILE, "Features", "webhookEnabled")
  IniWrite(passwordProtection, CONFIG_FILE, "Features", "passwordProtection")
- IniWrite(masterPassword, CONFIG_FILE, "Features", "masterPassword")
+ ; masterPassword intentionally NOT written to disk (plaintext storage risk)
  
  }
 }
@@ -607,14 +607,16 @@ BlinkLED() {
 FetchGeoIP() {
  global ipGeoDisplay
  try {
- whr := HttpGet("http://ip-api.com/json/?fields=status,countryCode,regionName,query")
+ whr := HttpGet("https://ipapi.co/json/")
  if (whr.Status == 200) {
  res := whr.ResponseText
- if InStr(res, '"status":"success"') {
- RegExMatch(res, '"query":"([^"]+)"', &matchIp)
- RegExMatch(res, '"countryCode":"([^"]+)"', &matchCountry)
- RegExMatch(res, '"regionName":"([^"]+)"', &matchRegion)
- ipGeoDisplay.Value := (matchIp ​​? matchIp[1] : "Unknown") " [" (matchCountry ? matchCountry[1] : "—") "/" (matchRegion ? matchRegion[1] : "—") "]"
+ if InStr(res, '"ip"') {
+ RegExMatch(res, '"ip":"([^"]+)"', &matchIp)
+ RegExMatch(res, '"country_code":"([^"]+)"', &matchCountry)
+ RegExMatch(res, '"region":"([^"]+)"', &matchRegion)
+ rawIp := matchIp ? matchIp[1] : "Unknown"
+ maskedIp := RegExReplace(rawIp, "(\d+\.\d+)\.\d+\.\d+", "$1.*.*")
+ ipGeoDisplay.Value := maskedIp " [" (matchCountry ? matchCountry[1] : "—") "/" (matchRegion ? matchRegion[1] : "—") "]"
  return
  }
  }
@@ -878,8 +880,19 @@ SendMessage_Internal(targetID, chosenMsg, windowIdx, loopNum) {
 
 SendWebhook(windowIdx, message, success) {
  global webhookURL
+ 
+ if (SubStr(webhookURL, 1, 8) != "https://") {
+ AddLog("⚠️ Webhook blocked — HTTPS required")
+ return
+ }
+ 
  try {
- payload := '{"window":' windowIdx ',"message":"' StrReplace(message, """", "\""") '","success":' (success ? "true" : "false") ',"timestamp":"' Timestamp() '"}'
+ escapedMsg := StrReplace(message, "\", "\\")
+ escapedMsg := StrReplace(escapedMsg, '"', '\"')
+ escapedMsg := StrReplace(escapedMsg, "`n", "\n")
+ escapedMsg := StrReplace(escapedMsg, "`r", "\r")
+ escapedMsg := StrReplace(escapedMsg, "`t", "\t")
+ payload := '{"window":' windowIdx ',"message":"' escapedMsg '","success":' (success ? "true" : "false") ',"timestamp":"' Timestamp() '"}'
  HttpPost(webhookURL, payload,, 3)
  }
 }
