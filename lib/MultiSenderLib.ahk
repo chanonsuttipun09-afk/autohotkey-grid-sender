@@ -183,7 +183,11 @@ SaveHotkeysToFile(hotkeyFile, hotkeys) {
 ; ── Webhook Payload ────────────────────────────────────────
 
 BuildWebhookPayload(windowIdx, message, success) {
-    escapedMsg := StrReplace(message, '"', '\"')
+    escapedMsg := StrReplace(message, '\', '\\')
+    escapedMsg := StrReplace(escapedMsg, '"', '\"')
+    escapedMsg := StrReplace(escapedMsg, '`n', '\n')
+    escapedMsg := StrReplace(escapedMsg, '`r', '\r')
+    escapedMsg := StrReplace(escapedMsg, '`t', '\t')
     timestamp := FormatTime(, "yyyy-MM-dd HH:mm:ss")
     return '{"window":' windowIdx ',"message":"' escapedMsg '","success":' (success ? "true" : "false") ',"timestamp":"' timestamp '"}'
 }

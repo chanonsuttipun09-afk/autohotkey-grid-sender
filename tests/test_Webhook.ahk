@@ -24,5 +24,24 @@ payload := BuildWebhookPayload(1, 'say "hi"', true)
 t.AssertTrue(InStr(payload, '\"hi\"') > 0, "quotes escaped")
 t.AssertFalse(InStr(payload, 'say "hi"') > 0, "raw quotes not present")
 
+; ── Backslashes escaped before quotes ──────────────────────
+
+payload := BuildWebhookPayload(1, 'C:\Users\test', true)
+t.AssertTrue(InStr(payload, 'C:\\Users\\test') > 0, "backslashes escaped")
+t.AssertFalse(InStr(payload, 'C:\Users\test') > 0, "raw backslashes not present")
+
+; ── Control characters escaped ─────────────────────────────
+
+payload := BuildWebhookPayload(1, "line1`nline2", true)
+t.AssertTrue(InStr(payload, 'line1\nline2') > 0, "newline escaped")
+
+payload := BuildWebhookPayload(1, "col1`tcol2", true)
+t.AssertTrue(InStr(payload, 'col1\tcol2') > 0, "tab escaped")
+
+; ── Backslash-quote combo ──────────────────────────────────
+
+payload := BuildWebhookPayload(1, 'path\"file', true)
+t.AssertTrue(InStr(payload, 'path\\\"file') > 0, "backslash then quote")
+
 failures := t.Report()
 ExitApp(failures)
