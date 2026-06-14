@@ -3,6 +3,7 @@
 
 SetTitleMatchMode 2
 SendMode "Event"
+CoordMode "Mouse", "Window"   ; พิกัดคลิกอิงมุมบนซ้ายของหน้าต่าง (ต้องตรงกับ WinGetPos)
 
 ; ══════════════════════════════════════════
 ;    ⚙️ PROCESS OPTIMIZATION & CONFIG
@@ -251,7 +252,7 @@ ApplyThemeVars() {
 }
 
 BuildGui() {
-    global C, UI_W, UI_H, PAD, COMP_W, master, followers, currentMsgText, isLoopMode
+    global C, UI_W, UI_H, PAD, COMP_W, master, followers, currentMsgText, isLoopMode, isDarkMode
     global G, clockLedDisp, clockCityDisp, clockDescDisp, btnChangeTz
     global ipGeoDisplay, netSpeedDisplay, statusDot, statusText, masterLabel
     global followerLabel, msgEditor, chkLoop, progress, miniLogText, statsDisplay
@@ -311,9 +312,10 @@ BuildGui() {
     ; ─── ROW 5: MESSAGE INPUT EDITOR ───
     G.AddText("x" PAD " y124 w" COMP_W " h1 Background" C.LINE, "")
     G.SetFont("s8 Bold", "Segoe UI")
-    G.AddText("x12 y128 c" C.ACC, "⌨ กล่องข้อความแชท (สุ่มส่งอัตโนมัติ):")
+    G.AddText("x12 y128 c" C.ACC, "✍️ พิมพ์/แก้ข้อความตรงนี้ได้เลย — 1 บรรทัด = 1 ข้อความ (เซฟอัตโนมัติ):")
     G.SetFont("s8.5", "Segoe UI")
     msgEditor := G.AddEdit("x" PAD " y144 w" COMP_W " h36 Background" C.BG2 " c" C.FG " WantTab +VScroll -Border", currentMsgText)
+    msgEditor.OnEvent("LoseFocus", (*) => SaveMessages(msgEditor.Value))
 
     ; ─── ROW 6: AUTOMATION ENGINE CONTROLS ───
     G.AddText("x" PAD " y186 w" COMP_W " h1 Background" C.LINE, "")
@@ -336,8 +338,9 @@ BuildGui() {
     ; ─── ROW 8: 📊 STATS & ⚙️ V6 CONTROLS ───
     G.AddText("x" PAD " y244 w" COMP_W " h1 Background" C.LINE, "")
     G.SetFont("s8 Bold", "Consolas")
-    statsDisplay := G.AddText("x12 y250 w260 h18 Background" C.BG " c" C.GRN, "📊 ส่ง: 0  ✓ 0  ✗ 0")
+    statsDisplay := G.AddText("x12 y250 w200 h18 Background" C.BG " c" C.GRN, "📊 ส่ง: 0  ✓ 0  ✗ 0")
     G.SetFont("s8 Bold", "Segoe UI")
+    G.AddButton("x216 y248 w78 h22 c" C.YEL, isDarkMode ? "☀️ สว่าง" : "🌙 มืด").OnEvent("Click", (*) => SetTimer(() => ToggleTheme(), -10))
     G.AddButton("x300 y248 w105 h22 c" C.ACC, "⚙️ ตั้งค่า v6").OnEvent("Click", (*) => OpenSettings())
     G.AddButton("x410 y248 w115 h22 c" C.FG2, "📂 ประวัติ").OnEvent("Click", (*) => OpenHistoryViewer())
     G.SetFont("s7.5", "Segoe UI")
@@ -586,6 +589,7 @@ StartSendEngine(*) {
         progress.Value := 0
 
         SetKeyDelay 20, 20
+        CoordMode "Mouse", "Window"
 
         for idx, id in followers {
             if !isSending
@@ -820,6 +824,14 @@ OpenHistoryViewer() {
 ; ══════════════════════════════════════════
 ;    ⚙️ SETTINGS WINDOW (v6 FEATURES)
 ; ══════════════════════════════════════════
+CloseSettings() {
+    global SG
+    if (IsSet(SG) && SG) {
+        try SG.Destroy()
+    }
+    SG := 0
+}
+
 OpenSettings() {
     global SG, C, followers
     global schedulerEnabled, schedulerInterval, repeatMode, repeatCount
@@ -830,23 +842,25 @@ OpenSettings() {
     global sgWebOn, sgWebURL, sgPwOn, sgPw, sgDark, sgSel, sgLV
     global sgHkSend, sgHkStop, sgHkReload, sgHkExit, sgHkMaster, sgHkFollower
 
-    if (IsSet(SG) && SG) {
-        try SG.Destroy()
+    if (IsSet(SG) && SG) {       ; เปิดอยู่แล้ว → กดอีกครั้งเพื่อปิด (สไตล์หน้าต่างแชต)
+        CloseSettings()
+        return
     }
-    SG := Gui("+AlwaysOnTop", "⚙️ ตั้งค่า MultiSender v6")
+    SG := Gui("+AlwaysOnTop +ToolWindow", "⚙️ ตั้งค่า MultiSender v6")
     SG.BackColor := C.BG2
-    SG.SetFont("s9", "Segoe UI")
+    SG.SetFont("s8", "Segoe UI")
+    SG.OnEvent("Close", (*) => CloseSettings())
 
-    SG.SetFont("s10 Bold")
+    SG.SetFont("s9 Bold")
     SG.AddText("x15 y12 c" C.ACC, "⏰ ตั้งเวลาส่งอัตโนมัติ (Scheduler)")
     SG.SetFont("s9 Norm")
-    sgSched := SG.AddCheckbox("x20 y+6", " เปิดใช้งานตั้งเวลาส่ง")
+    sgSched := SG.AddCheckbox("x20 y+4", " เปิดใช้งานตั้งเวลาส่ง")
     sgSched.Value := schedulerEnabled
-    SG.AddText("x20 y+8", "ทุก ๆ (วินาที):")
+    SG.AddText("x20 y+6", "ทุก ๆ (วินาที):")
     sgInterval := SG.AddEdit("x130 yp-3 w80", schedulerInterval)
 
-    SG.SetFont("s10 Bold")
-    SG.AddText("x15 y+14 c" C.ACC, "🔁 ส่งซ้ำ (Repeat) + 🎲 หน่วงเวลาสุ่ม")
+    SG.SetFont("s9 Bold")
+    SG.AddText("x15 y+10 c" C.ACC, "🔁 ส่งซ้ำ (Repeat) + 🎲 หน่วงเวลาสุ่ม")
     SG.SetFont("s9 Norm")
     sgRepeat := SG.AddCheckbox("x20 y+6", " เปิดโหมดส่งซ้ำ")
     sgRepeat.Value := repeatMode
@@ -857,16 +871,16 @@ OpenSettings() {
     SG.AddText("x230 yp+3", "สูงสุด:")
     sgDelayMax := SG.AddEdit("x285 yp-3 w70", randomDelayMax)
 
-    SG.SetFont("s10 Bold")
-    SG.AddText("x15 y+14 c" C.ACC, "📱 Webhook")
+    SG.SetFont("s9 Bold")
+    SG.AddText("x15 y+10 c" C.ACC, "📱 Webhook")
     SG.SetFont("s9 Norm")
     sgWebOn := SG.AddCheckbox("x20 y+6", " ส่งข้อมูลไปยัง Webhook")
     sgWebOn.Value := webhookEnabled
     SG.AddText("x20 y+8", "URL:")
     sgWebURL := SG.AddEdit("x60 yp-3 w355", webhookURL)
 
-    SG.SetFont("s10 Bold")
-    SG.AddText("x15 y+14 c" C.ACC, "🔐 รหัสผ่าน + 🌙 ธีม")
+    SG.SetFont("s9 Bold")
+    SG.AddText("x15 y+10 c" C.ACC, "🔐 รหัสผ่าน + 🌙 ธีม")
     SG.SetFont("s9 Norm")
     sgPwOn := SG.AddCheckbox("x20 y+6", " ล็อกด้วยรหัสผ่านตอนเปิดโปรแกรม")
     sgPwOn.Value := passwordProtection
@@ -875,22 +889,22 @@ OpenSettings() {
     sgDark := SG.AddCheckbox("x20 y+10", " 🌙 โหมดมืด (Dark Mode)")
     sgDark.Value := isDarkMode
 
-    SG.SetFont("s10 Bold")
-    SG.AddText("x15 y+14 c" C.ACC, "🎯 เลือกจอที่จะส่ง (Selectable Windows)")
+    SG.SetFont("s9 Bold")
+    SG.AddText("x15 y+10 c" C.ACC, "🎯 เลือกจอที่จะส่ง (Selectable Windows)")
     SG.SetFont("s9 Norm")
     sgSel := SG.AddCheckbox("x20 y+6", " ส่งเฉพาะจอที่ติ๊กเลือกด้านล่าง")
     sgSel.Value := useSelection
-    sgLV := SG.AddListView("x20 y+6 w395 h110 Checked", ["#", "หน้าต่าง (Title)"])
+    sgLV := SG.AddListView("x20 y+6 w360 h80 Checked", ["#", "หน้าต่าง (Title)"])
     for idx, id in followers {
         row := sgLV.Add(, idx, WinExist(id) ? WinGetTitle(id) : "(ไม่พบ) " id)
         if (!useSelection || selectedFollowers.Has(id))
             sgLV.Modify(row, "Check")
     }
     sgLV.ModifyCol(1, 30)
-    sgLV.ModifyCol(2, 340)
+    sgLV.ModifyCol(2, 305)
 
-    SG.SetFont("s10 Bold")
-    SG.AddText("x15 y+14 c" C.ACC, "⚙️ ปุ่มลัด (Custom Hotkeys)")
+    SG.SetFont("s9 Bold")
+    SG.AddText("x15 y+10 c" C.ACC, "⚙️ ปุ่มลัด (Custom Hotkeys)")
     SG.SetFont("s9 Norm")
     SG.AddText("x20 y+6 w90", "ส่ง:")
     sgHkSend := SG.AddEdit("x110 yp-3 w90", hotkeyMap["send"])
@@ -905,10 +919,10 @@ OpenSettings() {
     SG.AddText("x215 yp+3 w70", "เพิ่มลูก:")
     sgHkFollower := SG.AddEdit("x290 yp-3 w90", hotkeyMap["follower"])
 
-    SG.SetFont("s9 Bold")
-    SG.AddButton("x20 y+16 w120 h30 c" C.GRN, "💾 บันทึก").OnEvent("Click", SaveSettings)
-    SG.AddButton("x150 yp w120 h30 c" C.YEL, "🔄 รีเซ็ตสถิติ").OnEvent("Click", ResetStats)
-    SG.AddButton("x290 yp w120 h30 c" C.RED, "ปิด").OnEvent("Click", (*) => SG.Destroy())
+    SG.SetFont("s8 Bold")
+    SG.AddButton("x20 y+12 w120 h26 c" C.GRN, "💾 บันทึก").OnEvent("Click", SaveSettings)
+    SG.AddButton("x150 yp w120 h26 c" C.YEL, "🔄 รีเซ็ตสถิติ").OnEvent("Click", ResetStats)
+    SG.AddButton("x290 yp w120 h26 c" C.RED, "ปิด").OnEvent("Click", (*) => CloseSettings())
 
     SG.Show("AutoSize")
 }
@@ -960,7 +974,7 @@ SaveSettings(*) {
     ToggleScheduler(schedulerEnabled)
 
     Flash("💾 บันทึกการตั้งค่าแล้ว")
-    SG.Destroy()
+    CloseSettings()
 
     if (newDark != isDarkMode)
         ToggleTheme()
