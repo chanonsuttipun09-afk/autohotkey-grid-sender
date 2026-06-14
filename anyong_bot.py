@@ -47,6 +47,7 @@ from zoneinfo import ZoneInfo
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    MessageEntity,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
     Update,
@@ -110,21 +111,54 @@ BTN_CLIPS = "📺 คลิปเตือนภัย จุ๊บๆ"
 BTN_FAN = "👫 ลูกค้าของแฟน (30%)"
 BTN_STAFF = "👔 ลูกค้าของพนักงาน (13%)"
 BTN_CANCEL = "🙅‍♀️ ยกเลิกก่อนนะ"
-BTN_SUMMARY = "📊 สรุปวันนี้"
-BTN_PROFILE = "👤 โปรไฟล์ของฉัน"
+BTN_MORE = "📋 เมนูเพิ่มเติม"
+
+# Inline "more menu" callback data
+CB_SCRIPTS = "menu_scripts"
+CB_CLIPS = "menu_clips"
+CB_SUMMARY = "menu_summary"
+CB_PROFILE = "menu_profile"
+CB_RANKING = "menu_ranking"
+CB_EXPORT = "menu_export"
+CB_WORKS = "menu_works"
+
+# Work-entry parser: matches "name/amount" (e.g. "อันยอง/300000", "Bell / 5m")
+WORK_ENTRY_RE = re.compile(r"([^\s/\\]+)\s*[/\\]\s*(\d[\d,\.]*m?)", re.IGNORECASE)
 
 # ---------------------------------------------------------------------------
 # Keyboards
 # ---------------------------------------------------------------------------
+# Compact daily keyboard: only the actions used every day stay on the
+# ReplyKeyboard; everything else lives in the inline "more" menu so the
+# keyboard does not feel crowded.
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
         [BTN_CHECKIN, BTN_CHECKOUT],
         [BTN_BREAK, BTN_RETURN],
-        [BTN_CALC, BTN_SCRIPTS],
-        [BTN_CLIPS, BTN_SUMMARY],
-        [BTN_PROFILE],
+        [BTN_CALC, BTN_MORE],
     ],
     resize_keyboard=True,
+)
+
+# Inline "more" menu — attached to a message, keeps the keyboard clean.
+MORE_MENU = InlineKeyboardMarkup(
+    [
+        [
+            InlineKeyboardButton("📖 คลังสคริปต์", callback_data=CB_SCRIPTS),
+            InlineKeyboardButton("📺 คลิปเตือนภัย", callback_data=CB_CLIPS),
+        ],
+        [
+            InlineKeyboardButton("📊 สรุปวันนี้", callback_data=CB_SUMMARY),
+            InlineKeyboardButton("📈 งานวันนี้", callback_data=CB_WORKS),
+        ],
+        [
+            InlineKeyboardButton("👤 โปรไฟล์", callback_data=CB_PROFILE),
+            InlineKeyboardButton("🏆 อันดับเดือนนี้", callback_data=CB_RANKING),
+        ],
+        [
+            InlineKeyboardButton("📥 ส่งออก CSV", callback_data=CB_EXPORT),
+        ],
+    ]
 )
 
 TYPE_KEYBOARD = ReplyKeyboardMarkup(
@@ -190,19 +224,22 @@ MANUAL = (
     "   → กดตอนกลับจากพัก พร้อมทำงานต่อ\n\n"
     "💰 *คำนวณค่าคอมฯ*\n"
     "   → คำนวณค่าคอมมิชชั่น แยกตามประเภทลูกค้า\n\n"
-    "📖 *คลังสคริปต์*\n"
-    "   → ดูสคริปต์ปิดการขายสุดปัง 🔥\n\n"
-    "📺 *คลิปเตือนภัย จุ๊บๆ*\n"
-    "   → คลิปเตือนภัยมิจฉาชีพ ดูแล้วระวังตัวด้วยนะ!\n\n"
-    "📊 *สรุปวันนี้*\n"
-    "   → ดูสรุปชั่วโมงทำงานของวันนี้\n\n"
-    "👤 *โปรไฟล์ของฉัน*\n"
-    "   → ดูสถิติการทำงานส่วนตัว\n\n"
+    "📋 *เมนูเพิ่มเติม*\n"
+    "   → รวมคลังสคริปต์ / คลิป / สรุป / โปรไฟล์ / อันดับ / ส่งออก CSV ไว้ในปุ่มเดียว\n\n"
+    "━━━━━━━━━━━━━━━━━━━━\n"
+    "📝 *บันทึกงานง่ายๆ*\n"
+    "   → พิมพ์ *ชื่อ/ยอด* มาได้เลย (หลายบรรทัดก็ได้) เช่น\n"
+    "      `อันยอง/300000`\n"
+    "      `เบล/5m`\n"
+    "   อันยองจะบันทึกให้ทุกรายการเลยค่ะ! (ส่งรูป+แคปชั่นก็อ่านได้)\n\n"
+    "🔗 *ส่งลิงก์/คลิป*\n"
+    "   → วางลิงก์มาได้เลย อันยองเก็บให้อัตโนมัติ\n\n"
     "━━━━━━━━━━━━━━━━━━━━\n"
     "📌 *คำสั่งพิเศษ*\n"
     "/summary  → สรุปชั่วโมงทำงานวันนี้\n"
     "/ranking  → ดูอันดับเช็คอินประจำเดือน\n"
     "/export   → ดาวน์โหลดข้อมูลเป็น CSV\n"
+    "/works    → ดูงานที่บันทึกวันนี้\n"
     "/profile  → สถิติส่วนตัว\n"
     "/logs     → ประวัติล่าสุด 10 รายการ\n"
     "/clear    → ลบประวัติของตัวเอง\n"
@@ -258,6 +295,9 @@ def get_pool() -> psycopg2.pool.ThreadedConnectionPool:
             minconn=2,
             maxconn=10,
             dsn=DATABASE_URL,
+            # Keep the DB session in Bangkok time so naive timestamps and
+            # `::date` comparisons line up with now_th().
+            options="-c timezone=Asia/Bangkok",
         )
         logger.info("Database connection pool created")
     return _pool
@@ -332,6 +372,25 @@ def init_db() -> None:
                 )
             """)
             cur.execute("""
+                CREATE TABLE IF NOT EXISTS work_entries (
+                    id          SERIAL PRIMARY KEY,
+                    user_id     BIGINT NOT NULL,
+                    user_name   TEXT   NOT NULL,
+                    client_name TEXT   NOT NULL,
+                    amount      TEXT   NOT NULL,
+                    recorded_at TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS shared_links (
+                    id          SERIAL PRIMARY KEY,
+                    user_id     BIGINT NOT NULL,
+                    user_name   TEXT   NOT NULL,
+                    url         TEXT   NOT NULL,
+                    recorded_at TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS user_settings (
                     user_id          BIGINT PRIMARY KEY,
                     user_name        TEXT   NOT NULL DEFAULT '',
@@ -346,6 +405,10 @@ def init_db() -> None:
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_work_logs_logged_at
                 ON work_logs (logged_at)
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_work_entries_user_id
+                ON work_entries (user_id)
             """)
     logger.info("Database initialised")
 
@@ -535,21 +598,25 @@ def _scripts_keyboard(rows: list[tuple[int, str]], page: int, total: int) -> Inl
     return InlineKeyboardMarkup(keyboard)
 
 
-async def menu_scripts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
-        return
+async def _send_scripts(msg) -> None:
     rows, total = _fetch_scripts(0)
     if not rows:
-        await update.message.reply_text(
+        await msg.reply_text(
             "📖 ยังไม่มีสคริปต์ในคลังเลยค่ะ🍑\n\n"
             "แอดมินสามารถเพิ่มสคริปต์ได้ด้วยคำสั่ง /addscript นะคะ 💖",
             reply_markup=MAIN_KEYBOARD,
         )
         return
-    await update.message.reply_text(
+    await msg.reply_text(
         f"📖 คลังสคริปต์สุดปัง ({total} รายการ) เลือกที่ชอบแล้วไปปิดการขายเลยค่ะ! 🍑🔥",
         reply_markup=_scripts_keyboard(rows, 0, total),
     )
+
+
+async def menu_scripts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    await _send_scripts(update.message)
 
 
 async def scripts_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -701,21 +768,25 @@ def _clips_keyboard(rows: list[tuple[int, str, str]], page: int, total: int) -> 
     return InlineKeyboardMarkup(keyboard)
 
 
-async def menu_clips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
-        return
+async def _send_clips(msg) -> None:
     rows, total = _fetch_clips(0)
     if not rows:
-        await update.message.reply_text(
+        await msg.reply_text(
             "📺 ยังไม่มีคลิปเตือนภัยในคลังเลยค่ะ🍑\n\n"
             "แอดมินสามารถเพิ่มได้ด้วยคำสั่ง /addclip นะคะ 💖",
             reply_markup=MAIN_KEYBOARD,
         )
         return
-    await update.message.reply_text(
+    await msg.reply_text(
         f"📺 คลิปเตือนภัยมิจฉาชีพ ({total} คลิป) ดูแล้วระวังตัวด้วยนะคะ 🍑💕",
         reply_markup=_clips_keyboard(rows, 0, total),
     )
+
+
+async def menu_clips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    await _send_clips(update.message)
 
 
 async def clips_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -841,40 +912,138 @@ def _upsert_user(user_id: int, user_name: str) -> None:
             )
 
 
+@db_retry
+def _insert_work_entries(
+    user_id: int, user_name: str, entries: list[tuple[str, str]], recorded_at: datetime
+) -> None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                """INSERT INTO work_entries
+                       (user_id, user_name, client_name, amount, recorded_at)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                [(user_id, user_name, name, amount, recorded_at) for name, amount in entries],
+            )
+
+
+@db_retry
+def _insert_links(
+    user_id: int, user_name: str, urls: list[str], recorded_at: datetime
+) -> None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                """INSERT INTO shared_links (user_id, user_name, url, recorded_at)
+                   VALUES (%s, %s, %s, %s)""",
+                [(user_id, user_name, url, recorded_at) for url in urls],
+            )
+
+
+def _parse_work_entries(text: str) -> list[tuple[str, str]]:
+    """Parse 'name/amount' lines into (name, amount) tuples."""
+    entries: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        match = WORK_ENTRY_RE.search(line)
+        if match:
+            name = match.group(1).strip(" .,:-")
+            amount = match.group(2).strip()
+            if name:
+                entries.append((name, amount))
+    return entries
+
+
+def _extract_urls(message) -> list[str]:
+    """Pull URLs out of a message via entities, with a regex fallback."""
+    body = message.text or message.caption or ""
+    entities = message.entities or message.caption_entities or []
+    urls: list[str] = []
+    for ent in entities:
+        if ent.type == MessageEntity.URL:
+            urls.append(body[ent.offset : ent.offset + ent.length])
+        elif ent.type == MessageEntity.TEXT_LINK and ent.url:
+            urls.append(ent.url)
+    if not urls:
+        urls = re.findall(r"https?://\S+", body)
+    # de-duplicate while preserving order
+    seen: set[str] = set()
+    return [u for u in urls if not (u in seen or seen.add(u))]
+
+
+# Replies for daily-action buttons (logged to work_logs for stats/ranking).
+_ACTION_REPLIES = {
+    BTN_CHECKIN: lambda: CHECKIN_REPLIES,
+    BTN_BREAK: lambda: BREAK_REPLIES,
+    BTN_RETURN: lambda: RETURN_REPLIES,
+}
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.message.from_user:
         return
-    user = update.message.from_user
-    text = (update.message.text or "").strip()
+    msg = update.message
+    user = msg.from_user
+    text = (msg.text or msg.caption or "").strip()
     now = now_th()
     timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
     seed = user.id + int(now.timestamp())
 
-    _insert_log(user.id, user.full_name, text, now)
-    _upsert_user(user.id, user.full_name)
-
-    if text == BTN_CHECKIN:
-        reply = get_reply(CHECKIN_REPLIES, seed)
-    elif text == BTN_CHECKOUT:
-        reply = get_reply(CHECKOUT_REPLIES, seed)
-        hours = _calc_today_hours(user.id)
-        if hours is not None:
-            reply += f"\n\n⏱️ วันนี้ทำงานรวม {hours:.1f} ชั่วโมงค่ะ"
-    elif text == BTN_BREAK:
-        reply = get_reply(BREAK_REPLIES, seed)
-    elif text == BTN_RETURN:
-        reply = get_reply(RETURN_REPLIES, seed)
-    elif text == BTN_SUMMARY:
-        await _send_summary(update, user.id)
+    # 1) Daily-action buttons → log + reply (these feed summary/ranking).
+    if text in (BTN_CHECKIN, BTN_CHECKOUT, BTN_BREAK, BTN_RETURN):
+        _insert_log(user.id, user.full_name, text, now)
+        _upsert_user(user.id, user.full_name)
+        if text == BTN_CHECKOUT:
+            reply = get_reply(CHECKOUT_REPLIES, seed)
+            hours = _calc_today_hours(user.id)
+            if hours is not None:
+                reply += f"\n\n⏱️ วันนี้ทำงานรวม {hours:.1f} ชั่วโมงค่ะ"
+        else:
+            reply = get_reply(_ACTION_REPLIES[text](), seed)
+        await msg.reply_text(
+            f"{reply}\n\n👤 {user.full_name}  🕐 {timestamp}",
+            reply_markup=MAIN_KEYBOARD,
+        )
         return
-    elif text == BTN_PROFILE:
-        await _send_profile(update, user.id, user.full_name)
-        return
-    else:
-        reply = get_reply(DEFAULT_REPLIES, seed)
 
-    await update.message.reply_text(
-        f"{reply}\n\n👤 {user.full_name}  🕐 {timestamp}",
+    # 2) "More" menu → show the inline menu (keeps the keyboard tidy).
+    if text == BTN_MORE:
+        await msg.reply_text(
+            "📋 เมนูเพิ่มเติมค่ะ🍑 เลือกที่อยากดูได้เลยน้า~",
+            reply_markup=MORE_MENU,
+        )
+        return
+
+    # 3) Links / clips → save automatically (check before work entries since
+    #    URLs also contain '/').
+    urls = _extract_urls(msg)
+    if urls:
+        _upsert_user(user.id, user.full_name)
+        _insert_links(user.id, user.full_name, urls, now)
+        await msg.reply_text(
+            f"📺 รับทราบค่ะ! อันยองเก็บลิงก์ให้แล้ว {len(urls)} รายการ จุ๊บๆ 🍑",
+            reply_markup=MAIN_KEYBOARD,
+        )
+        return
+
+    # 4) Work entries "ชื่อ/ยอด" (single or multi-line).
+    if "/" in text or "\\" in text:
+        entries = _parse_work_entries(text)
+        if entries:
+            _upsert_user(user.id, user.full_name)
+            _insert_work_entries(user.id, user.full_name, entries, now)
+            preview = "\n".join(f"  • {n}  /  {a}" for n, a in entries[:10])
+            extra = (
+                f"\n…และอีก {len(entries) - 10} รายการ" if len(entries) > 10 else ""
+            )
+            await msg.reply_text(
+                f"🍑 อันยองบันทึกงานให้แล้ว {len(entries)} รายการ "
+                f"เก่งมากเลยค่ะ คนดี~ จุ๊บม๊วฟ!\n\n{preview}{extra}",
+                reply_markup=MAIN_KEYBOARD,
+            )
+            return
+
+    # 5) Anything else → friendly reply only (no DB write, keeps things light).
+    await msg.reply_text(
+        f"{get_reply(DEFAULT_REPLIES, seed)}\n\n👤 {user.full_name}  🕐 {timestamp}",
         reply_markup=MAIN_KEYBOARD,
     )
 
@@ -926,12 +1095,25 @@ def _calc_today_hours(user_id: int) -> float | None:
     return total_seconds / 3600 if total_seconds > 0 else None
 
 
-async def _send_summary(update: Update, user_id: int) -> None:
-    if not update.message:
-        return
+@db_retry
+def _get_today_entries(user_id: int) -> list[tuple[str, str, datetime]]:
+    today = now_th().date()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT client_name, amount, recorded_at FROM work_entries
+                   WHERE user_id = %s AND recorded_at::date = %s
+                   ORDER BY recorded_at ASC""",
+                (user_id, today),
+            )
+            return cur.fetchall()
+
+
+async def _send_summary(msg, user_id: int) -> None:
     logs = _get_today_logs(user_id)
-    if not logs:
-        await update.message.reply_text(
+    entries = _get_today_entries(user_id)
+    if not logs and not entries:
+        await msg.reply_text(
             "📊 วันนี้ยังไม่มีข้อมูลเลยค่ะ🍑 ลองเช็คอินก่อนนะคะ~",
             reply_markup=MAIN_KEYBOARD,
         )
@@ -945,9 +1127,33 @@ async def _send_summary(update: Update, user_id: int) -> None:
     hours = _calc_today_hours(user_id)
     if hours is not None:
         lines.append(f"\n⏱️ ชั่วโมงทำงานรวม: *{hours:.1f} ชม.*")
+    if entries:
+        lines.append(f"📝 งานที่บันทึกวันนี้: *{len(entries)} รายการ*")
     lines.append("\nสู้ๆนะคะ อันยองเชียร์อยู่! 🍑🔥")
 
-    await update.message.reply_text(
+    await msg.reply_text(
+        "\n".join(lines),
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=MAIN_KEYBOARD,
+    )
+
+
+async def _send_works(msg, user_id: int) -> None:
+    entries = _get_today_entries(user_id)
+    if not entries:
+        await msg.reply_text(
+            "📈 วันนี้ยังไม่มีงานที่บันทึกเลยค่ะ🍑\n"
+            "พิมพ์ *ชื่อ/ยอด* มาได้เลยน้า~",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=MAIN_KEYBOARD,
+        )
+        return
+    lines = [f"📈 *งานวันนี้* ({len(entries)} รายการ) 🍑\n"]
+    for client, amount, ts in entries:
+        t = ts.strftime("%H:%M")
+        lines.append(f"  🕐 {t}  •  {client}  /  {amount}")
+    lines.append("\nเก่งมากเลยค่ะ! อันยองภูมิใจ 🍑💖")
+    await msg.reply_text(
         "\n".join(lines),
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=MAIN_KEYBOARD,
@@ -957,7 +1163,13 @@ async def _send_summary(update: Update, user_id: int) -> None:
 async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.message.from_user:
         return
-    await _send_summary(update, update.message.from_user.id)
+    await _send_summary(update.message, update.message.from_user.id)
+
+
+async def works_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.message.from_user:
+        return
+    await _send_works(update.message, update.message.from_user.id)
 
 
 # ---------------------------------------------------------------------------
@@ -1005,9 +1217,7 @@ def _get_profile_stats(user_id: int) -> dict[str, Any]:
     }
 
 
-async def _send_profile(update: Update, user_id: int, full_name: str) -> None:
-    if not update.message:
-        return
+async def _send_profile(msg, user_id: int, full_name: str) -> None:
     stats = _get_profile_stats(user_id)
     first = stats["first_log"].strftime("%Y-%m-%d") if stats["first_log"] else "ยังไม่มี"
     last = stats["last_log"].strftime("%Y-%m-%d") if stats["last_log"] else "ยังไม่มี"
@@ -1015,7 +1225,7 @@ async def _send_profile(update: Update, user_id: int, full_name: str) -> None:
     hours = _calc_today_hours(user_id)
     hours_text = f"{hours:.1f} ชม." if hours else "ยังไม่เช็คอิน"
 
-    msg = (
+    body = (
         f"👤 *โปรไฟล์ของ {full_name}* 🍑\n"
         f"{'━' * 28}\n"
         f"📅 วันที่เริ่มใช้งาน : {first}\n"
@@ -1027,8 +1237,8 @@ async def _send_profile(update: Update, user_id: int, full_name: str) -> None:
         f"{'━' * 28}\n"
         f"สู้ๆนะคะ อันยองภูมิใจในตัวคุณ! 🍑💖"
     )
-    await update.message.reply_text(
-        msg, parse_mode=ParseMode.MARKDOWN, reply_markup=MAIN_KEYBOARD
+    await msg.reply_text(
+        body, parse_mode=ParseMode.MARKDOWN, reply_markup=MAIN_KEYBOARD
     )
 
 
@@ -1036,7 +1246,7 @@ async def profile_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not update.message or not update.message.from_user:
         return
     await _send_profile(
-        update, update.message.from_user.id, update.message.from_user.full_name
+        update.message, update.message.from_user.id, update.message.from_user.full_name
     )
 
 
@@ -1062,12 +1272,10 @@ def _get_ranking() -> list[tuple[str, int]]:
             return cur.fetchall()
 
 
-async def ranking_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
-        return
+async def _send_ranking(msg) -> None:
     rows = _get_ranking()
     if not rows:
-        await update.message.reply_text(
+        await msg.reply_text(
             "🏆 ยังไม่มีข้อมูลเลยค่ะ🍑 ลองเช็คอินก่อนนะคะ~",
             reply_markup=MAIN_KEYBOARD,
         )
@@ -1081,11 +1289,17 @@ async def ranking_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         lines.append(f"{medal} {name}  →  {cnt} ครั้ง")
     lines.append("\nสู้ๆนะคะ ใครจะคว้าอันดับ 1! 🍑🔥")
 
-    await update.message.reply_text(
+    await msg.reply_text(
         "\n".join(lines),
         parse_mode=ParseMode.MARKDOWN,
         reply_markup=MAIN_KEYBOARD,
     )
+
+
+async def ranking_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    await _send_ranking(update.message)
 
 
 # ---------------------------------------------------------------------------
@@ -1105,12 +1319,10 @@ def _export_logs(user_id: int) -> list[tuple]:
             return cur.fetchall()
 
 
-async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.message.from_user:
-        return
-    rows = _export_logs(update.message.from_user.id)
+async def _send_export(msg, user_id: int) -> None:
+    rows = _export_logs(user_id)
     if not rows:
-        await update.message.reply_text(
+        await msg.reply_text(
             "📤 ยังไม่มีข้อมูลให้ดาวน์โหลดค่ะ🍑",
             reply_markup=MAIN_KEYBOARD,
         )
@@ -1124,14 +1336,20 @@ async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     buf.seek(0)
     bio = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
-    bio.name = f"work_logs_{update.message.from_user.id}.csv"
+    bio.name = f"work_logs_{user_id}.csv"
 
-    await update.message.reply_document(
+    await msg.reply_document(
         document=bio,
         filename=bio.name,
         caption="📤 ไฟล์ CSV สำหรับคุณค่ะ🍑 เปิดใน Excel ได้เลยนะ~",
         reply_markup=MAIN_KEYBOARD,
     )
+
+
+async def export_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.message.from_user:
+        return
+    await _send_export(update.message, update.message.from_user.id)
 
 
 # ---------------------------------------------------------------------------
@@ -1404,6 +1622,31 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 # ---------------------------------------------------------------------------
 
 
+async def more_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Dispatch the inline 'more' menu buttons to the matching feature."""
+    query = update.callback_query
+    if not query or not query.message or not query.from_user:
+        return
+    await query.answer()
+    msg = query.message
+    user = query.from_user
+    data = query.data
+    if data == CB_SCRIPTS:
+        await _send_scripts(msg)
+    elif data == CB_CLIPS:
+        await _send_clips(msg)
+    elif data == CB_SUMMARY:
+        await _send_summary(msg, user.id)
+    elif data == CB_WORKS:
+        await _send_works(msg, user.id)
+    elif data == CB_PROFILE:
+        await _send_profile(msg, user.id, user.full_name)
+    elif data == CB_RANKING:
+        await _send_ranking(msg)
+    elif data == CB_EXPORT:
+        await _send_export(msg, user.id)
+
+
 def build_app(token: str, bot_name: str = "bot") -> Application:
     """Build and configure a telegram Application with all handlers."""
     app = Application.builder().token(token).build()
@@ -1464,6 +1707,7 @@ def build_app(token: str, bot_name: str = "bot") -> Application:
     app.add_handler(CommandHandler("summary", summary_cmd))
     app.add_handler(CommandHandler("ranking", ranking_cmd))
     app.add_handler(CommandHandler("export", export_cmd))
+    app.add_handler(CommandHandler("works", works_cmd))
     app.add_handler(CommandHandler("profile", profile_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("reminder", reminder_cmd))
@@ -1472,6 +1716,7 @@ def build_app(token: str, bot_name: str = "bot") -> Application:
     app.add_handler(CallbackQueryHandler(scripts_page_callback, pattern=r"^scripts_page_\d+$"))
     app.add_handler(CallbackQueryHandler(script_callback, pattern=r"^script_\d+$"))
     app.add_handler(CallbackQueryHandler(clips_page_callback, pattern=r"^clips_page_\d+$"))
+    app.add_handler(CallbackQueryHandler(more_menu_callback, pattern=r"^menu_"))
 
     # Button presses & free text
     app.add_handler(MessageHandler(
@@ -1482,7 +1727,13 @@ def build_app(token: str, bot_name: str = "bot") -> Application:
         filters.Regex(rf"^({re_escape(BTN_CLIPS)})$"),
         menu_clips,
     ))
+    # Free text + media captions (so 'name/amount' or links in photo captions
+    # are parsed too).
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(
+        (filters.PHOTO | filters.VIDEO | filters.Document.ALL) & filters.CAPTION,
+        handle_message,
+    ))
 
     # Error handler
     app.add_error_handler(error_handler)
