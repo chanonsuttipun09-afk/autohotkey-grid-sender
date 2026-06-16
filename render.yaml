@@ -1,0 +1,22 @@
+services:
+  # Deployed as a free "web" service (not a background worker — those are paid
+  # on Render). The bot's built-in keep-alive HTTP server binds to $PORT so
+  # Render's health checks pass; an external pinger (e.g. UptimeRobot) hitting
+  # the service URL keeps the free instance from sleeping.
+  - type: web
+    name: anyong-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python anyong_bot.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: TOKEN
+        sync: false
+      - key: TOKEN2
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_IDS
+        sync: false

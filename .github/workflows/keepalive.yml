@@ -1,0 +1,26 @@
+name: keep-alive
+
+# Render free web services sleep after ~15 min of inactivity. This pings the
+# service every 10 minutes so the polling bot stays awake 24/7.
+# Note: GitHub only runs scheduled workflows from the default branch, and may
+# disable them after 60 days of repository inactivity.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render service
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -m 30 -o /dev/null -w "%{http_code}" https://anyong-bot.onrender.com/ || true)
+            echo "attempt $i -> HTTP $code"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 20
+          done
+          echo "service did not return 200 after retries"
+          exit 1

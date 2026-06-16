@@ -1,4 +1,4 @@
-#ต้องใช้ AutoHotkey เวอร์ชัน 2.0
+﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 
 SetTitleMatchMode 2
@@ -49,6 +49,46 @@ customHotkeys := {}
 followers := []
 
 ; ══════════════════════════════════════════════════════════
+; 🔧 Shared Utility Functions
+; ══════════════════════════════════════════════════════════
+
+IniReadInt(file, section, key, default := "0") {
+    return Integer(IniRead(file, section, key, default))
+}
+
+DeleteIfExists(filepath) {
+    if FileExist(filepath)
+        FileDelete(filepath)
+}
+
+HttpGet(url, timeout := 5) {
+    whr := ComObject("WinHttp.WinHttpRequest.5.1")
+    whr.Open("GET", url, true)
+    whr.Send()
+    whr.WaitForResponse(timeout)
+    return whr
+}
+
+HttpPost(url, body, contentType := "application/json", timeout := 5) {
+    whr := ComObject("WinHttp.WinHttpRequest.5.1")
+    whr.Open("POST", url, true)
+    whr.SetRequestHeader("Content-Type", contentType)
+    whr.Send(body)
+    whr.WaitForResponse(timeout)
+    return whr
+}
+
+WrapWinIdx() {
+    global currentWinIdx, followers
+    if (currentWinIdx > followers.Length)
+        currentWinIdx := 1
+}
+
+Timestamp(fmt := "yyyy-MM-dd HH:mm:ss") {
+    return FormatTime(, fmt)
+}
+
+; ══════════════════════════════════════════════════════════
 ; 💾 กำลังโหลดและบันทึกการตั้งค่า
 ; ════════════════════════════════════════════════════════════
 
@@ -58,26 +98,27 @@ LoadConfig() {
  
  followers := []
  if !FileExist(CONFIG_FILE)
- return
+  return
  try {
-n := Integer(IniRead(CONFIG_FILE, "Win", "count", "0"))
- Loop n {
- val := IniRead(CONFIG_FILE, "Win", "f" A_Index, "")
- if (val != "")
- followers.Push(val)
- }
- 
- schedulerInterval := Integer(IniRead(CONFIG_FILE, "Features", "schedulerInterval", "5000"))
- repeatCount := Integer(IniRead(CONFIG_FILE, "Features", "repeatCount", "1"))
- randomDelayMin := Integer(IniRead(CONFIG_FILE, "Features", "randomDelayMin", "0"))
- randomDelayMax := Integer(IniRead(CONFIG_FILE, "Features", "randomDelayMax", "1000"))
- webhookURL := IniRead(CONFIG_FILE, "Features", "webhookURL", "")
- webhookEnabled := Integer(IniRead(CONFIG_FILE, "Features", "webhookEnabled", "0"))
- passwordProtection := Integer(IniRead(CONFIG_FILE, "Features","passwordProtection", "0"))
- masterPassword := IniRead(CONFIG_FILE, "Features", "masterPassword", """)
- 
- } catch {
- followers := []
+  n := IniReadInt(CONFIG_FILE, "Win", "count")
+  Loop n {
+   val := IniRead(CONFIG_FILE, "Win", "f" A_Index, "")
+   if (val != "")
+    followers.Push(val)
+  }
+  
+  schedulerInterval := IniReadInt(CONFIG_FILE, "Features", "schedulerInterval", "5000")
+  repeatCount := IniReadInt(CONFIG_FILE, "Features", "repeatCount", "1")
+  randomDelayMin := IniReadInt(CONFIG_FILE, "Features", "randomDelayMin")
+  randomDelayMax := IniReadInt(CONFIG_FILE, "Features", "randomDelayMax", "1000")
+  webhookURL := IniRead(CONFIG_FILE, "Features", "webhookURL", "")
+  webhookEnabled := IniReadInt(CONFIG_FILE, "Features", "webhookEnabled")
+  passwordProtection := IniReadInt(CONFIG_FILE, "Features", "passwordProtection")
+  masterPassword := IniRead(CONFIG_FILE, "Features", "masterPassword", "")
+  
+ } catch as err {
+  OutputDebug("⚠️ LoadConfig error: " err.Message)
+  followers := []
  }
 }
 
@@ -86,93 +127,108 @@ SaveConfig() {
  global randomDelayMax, webhookURL, webhookEnabled, passwordProtection, masterPassword
  
  try {
- if FileExist(CONFIG_FILE)
- FileDelete(CONFIG_FILE)
- 
- IniWrite(followers.Length, CONFIG_FILE, "Win", "count")
- Loop followers.Length
- IniWrite(followers[A_Index], CONFIG_FILE, "Win", "f" A_Index)
- 
- IniWrite(schedulerInterval, CONFIG_FILE, "Features", "schedulerInterval")
- IniWrite(repeatCount, CONFIG_FILE, "Features", "repeatCount")
- IniWrite(randomDelayMin, CONFIG_FILE, "Features", "randomDelayMin")
- IniWrite(randomDelayMax, CONFIG_FILE, "Features", "randomDelayMax")
- IniWrite(webhookURL, CONFIG_FILE, "Features", "webhookURL")
- IniWrite(webhookEnabled, CONFIG_FILE, "Features", "webhookEnabled")
- IniWrite(passwordProtection, CONFIG_FILE, "Features", "passwordProtection")
- IniWrite(masterPassword, CONFIG_FILE, "Features", "masterPassword")
- 
+  DeleteIfExists(CONFIG_FILE)
+  
+  IniWrite(followers.Length, CONFIG_FILE, "Win", "count")
+  Loop followers.Length
+   IniWrite(followers[A_Index], CONFIG_FILE, "Win", "f" A_Index)
+  
+  IniWrite(schedulerInterval, CONFIG_FILE, "Features", "schedulerInterval")
+  IniWrite(repeatCount, CONFIG_FILE, "Features", "repeatCount")
+  IniWrite(randomDelayMin, CONFIG_FILE, "Features", "randomDelayMin")
+  IniWrite(randomDelayMax, CONFIG_FILE, "Features", "randomDelayMax")
+  IniWrite(webhookURL, CONFIG_FILE, "Features", "webhookURL")
+  IniWrite(webhookEnabled, CONFIG_FILE, "Features", "webhookEnabled")
+  IniWrite(passwordProtection, CONFIG_FILE, "Features", "passwordProtection")
+  IniWrite(masterPassword, CONFIG_FILE, "Features", "masterPassword")
+  
+ } catch as err {
+  AddLog("⚠️ SaveConfig error: " err.Message)
  }
 }
 
 LoadTheme() {
  global isDarkMode, THEME_FILE
  if FileExist(THEME_FILE) {
- isDarkMode := Integer(IniRead(THEME_FILE, "Theme", "darkMode", "1"))
+  try {
+   isDarkMode := IniReadInt(THEME_FILE, "Theme", "darkMode", "1")
+  } catch as err {
+   OutputDebug("⚠️ LoadTheme error: " err.Message)
+  }
  }
 }
 
 SaveTheme() {
  global isDarkMode, THEME_FILE
- IniWrite(isDarkMode ? "1" : "0", THEME_FILE, "Theme", "darkMode")
+ try {
+  IniWrite(isDarkMode ? "1" : "0", THEME_FILE, "Theme", "darkMode")
+ } catch as err {
+  AddLog("⚠️ SaveTheme error: " err.Message)
+ }
 }
 
 LoadMessages() {
  global MSG_FILE
  try {
- if !FileExist(MSG_FILE) {
- defaultMsgs := "สวัสดีครับที่ชื่นชอบสอบถามได้เลยนะ`r`nขอบคุณที่แวะมารับชมครับผม `r`n ฝากกดหัวใจและติดตามด้วยนะครับ"
- FileAppend(defaultMsgs, MSG_FILE, "UTF-8")
- }
- return FileRead(MSG_FILE, "UTF-8")
- } catch {
- return "สวัสดีครับ สอบถามได้ครับ"
+  if !FileExist(MSG_FILE) {
+   defaultMsgs := "สวัสดีครับที่ชื่นชอบสอบถามได้เลยนะ`r`nขอบคุณที่แวะมารับชมครับผม `r`n ฝากกดหัวใจและติดตามด้วยนะครับ"
+   FileAppend(defaultMsgs, MSG_FILE, "UTF-8")
+  }
+  return FileRead(MSG_FILE, "UTF-8")
+ } catch as err {
+  OutputDebug("⚠️ LoadMessages error: " err.Message)
+  return "สวัสดีครับ สอบถามได้ครับ"
  }
 }
 
 SaveMessages(txt) {
  global MSG_FILE
- ลอง {
- if FileExist(MSG_FILE)
- FileDelete(MSG_FILE)
- FileAppend(Trim(txt, "`r`n "), MSG_FILE, "UTF-8")
+ try {
+  DeleteIfExists(MSG_FILE)
+  FileAppend(Trim(txt, "`r`n "), MSG_FILE, "UTF-8")
+ } catch as err {
+  AddLog("⚠️ SaveMessages error: " err.Message)
  }
 }
 
-AddToHistory(windowIdx, ข้อความ, ความสำเร็จ) {
+AddToHistory(windowIdx, msg, success) {
  global sendHistory, HISTORY_FILE, sendStats
  
- การประทับเวลา := FormatTime(, "yyyy-MM-dd HH:mm:ss")
- entry := timestamp " | Window:" windowIdx " | " (สำเร็จ ? "✓" : "✗") " | " ข้อความ
+ timestamp := Timestamp()
+ entry := timestamp " | Window:" windowIdx " | " (success ? "✓" : "✗") " | " msg
  
  sendHistory.Push(entry)
- if (sendHistory.ความยาว > 1000)
- sendHistory.RemoveAt(1)
+ if (sendHistory.Length > 1000)
+  sendHistory.RemoveAt(1)
  
- ลอง {
- FileAppend(entry "`r`n", HISTORY_FILE, "UTF-8")
+ try {
+  FileAppend(entry "`r`n", HISTORY_FILE, "UTF-8")
+ } catch as err {
+  AddLog("⚠️ History write error: " err.Message)
  }
  
  sendStats.count++
- ถ้า (สำเร็จ)
- sendStats.success++
- มิฉะนั้น
- sendStats.failed++
+ if (success)
+  sendStats.success++
+ else
+  sendStats.failed++
 }
 
-โหลดคีย์ลัดแบบกำหนดเอง () {
- คีย์ลัดแบบกำหนดเองทั่วโลก, HOTKEY_FILE
+LoadCustomHotkeys() {
+ global customHotkeys, HOTKEY_FILE
  customHotkeys := {}
- ถ้า !FileExist(HOTKEY_FILE)
- ส่งคืน
- ลอง {
-n := Integer(IniRead(HOTKEY_FILE, "Hotkeys", "count", "0"))
- วนลูป n {
- key := IniRead(HOTKEY_FILE, "Hotkeys", "key" A_Index, "")
- การกระทำ := IniRead(HOTKEY_FILE, "Hotkeys", "action" A_Index, "")
- if (key != "" && action != "")
- customHotkeys[key] := action
- }
+ if !FileExist(HOTKEY_FILE)
+  return
+ try {
+  n := IniReadInt(HOTKEY_FILE, "Hotkeys", "count")
+  Loop n {
+   key := IniRead(HOTKEY_FILE, "Hotkeys", "key" A_Index, "")
+   action := IniRead(HOTKEY_FILE, "Hotkeys", "action" A_Index, "")
+   if (key != "" && action != "")
+    customHotkeys[key] := action
+  }
+ } catch as err {
+  OutputDebug("⚠️ LoadCustomHotkeys error: " err.Message)
  }
 }
 
@@ -222,9 +278,11 @@ G.BackColor := BG
 
 ; ════════════════════════════════════════
 ; ส่วนหัวและส่วนควบคุม
-; ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี "⚡")
-G.AddText("x+6 yp พื้นหลัง" BG " c" FG, "GRID SENDER v6")
-G.SetFont("s8 ตัวหนา", "Segoe UI")
+; ════════════════════════════════════════
+G.SetFont("s11 Bold", "Segoe UI")
+G.AddText("x" PAD " y12 Background" BG " c" ACC, "⚡")
+G.AddText("x+6 yp Background" BG " c" FG, "GRID SENDER v6")
+G.SetFont("s8 Bold", "Segoe UI")
 G.AddText("x+5 yp+3 Background" BG " c" CYN, "ULTIMATE")
 
 G.SetFont("s9 Bold", "Consolas")
@@ -254,7 +312,7 @@ G.AddText("x" PAD " y+12 w" COMP_W " h1 Background" LINE, "")
 
 ; ปุ่มแท็บ
 tabWidth := (COMP_W - 30) / 5
-G.SetFont("s9 ตัวหนา c" FG, "Segoe UI")
+G.SetFont("s9 Bold c" FG, "Segoe UI")
 btnTabMain := G.AddButton("x" PAD " y+8 w" tabWidth " h" TAB_H, "📺 หลัก")
 btnTabScheduler := G.AddButton("x+5 yp w" tabWidth " h" TAB_H, "⏰ตั้งเวลา")
 btnTabStats := G.AddButton("x+5 yp w" tabWidth " h" TAB_H, "📊 สถิติ")
@@ -269,14 +327,15 @@ btnTabSettings.OnEvent("Click", (*) => ShowTab("settings"))
 
 ; ════════════════════════════════════════
 ; แท็บ: หลัก
-; 4.0.2.2017 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .AddText("x" PAD " y+12 w" COMP_W " h1 Background" LINE, "")
+; ════════════════════════════════════════
+G.AddText("x" PAD " y+12 w" COMP_W " h1 Background" LINE, "")
 
 ; Window Register
 G.SetFont("s8.5 Bold", "Segoe UI")
 G.AddText("x" PAD " y+6 c" FG2, "📺 ลงทะเบียนกลุ่มเป้าหมาย:")
 BTN2_W := Floor((COMP_W - 6) / 2)
 G.AddButton("x" PAD " y+5 w" BTN2_W " h22 +0x200 c" CYN, "＋ไม่ต้องเพิ่มจอ (F6)").OnEvent("Click", AddFollower)
-G.AddButton("x+6 yp w" BTN2_W " h22 +0x200 c" RED, "🧹 ล้าง").OnEvent("Click", ล้างผู้ติดตาม)
+G.AddButton("x+6 yp w" BTN2_W " h22 +0x200 c" RED, "🧹 ล้าง").OnEvent("Click", ClearFollowers)
 
 ; ตัวแก้ไขข้อความ
 G.AddText("x" PAD " y+10 w" COMP_W " h1 Background" LINE, "")
@@ -299,7 +358,7 @@ repeatCountCtrl := G.AddEdit("x+3 yp w40 h20 Background" BG2 " c" FG, "1")
 
 G.AddText("x+10 y" (PAD + 6) " w" COL_W " h14 Background" BG " c" FG, "🎲 สุ่มเวลา (ms):")
 G.AddText("x+10 y+6 w20 h14 Background" BG " c" FG, "ต่ำ:")
-randomMinCtrl := G.AddEdit("x+3 yp w40 h18 พื้นหลัง" BG2 " c" FG, "0")
+randomMinCtrl := G.AddEdit("x+3 yp w40 h18 Background" BG2 " c" FG, "0")
 G.AddText("x+5 yp w20 h14 Background" BG " c" FG, " สูง:")
 randomMaxCtrl := G.AddEdit("x+3 yp w40 h18 Background" BG2 " c" FG, "1000")
 
@@ -322,19 +381,19 @@ logBox := G.AddEdit("x" PAD " y+5 w" COMP_W " h60 ReadOnly -Wrap +0x200000 Backg
 
 ; ════════════════════════════════════════
 ; แท็บ: ตัวกำหนดตารางเวลา
-; ══════════════════════════════════════════
+; ════════════════════════════════════════
 G.SetFont("s9 Bold", "Segoe UI")
 schedulerEnableCtrl := G.AddCheckbox("x" (PAD+5) " y" (PAD+100) " w200 h25", "🕐 เปิดเวลาอัตโนมัติ")
-schedulerEnableCtrl.OnEvent("คลิก", ToggleScheduler)
+schedulerEnableCtrl.OnEvent("Click", ToggleScheduler)
 
 G.SetFont("s8", "Segoe UI")
-G.AddText("x" (PAD+5) " y+5 c" FG, "ช่วงเวลา (มลทิน):")
+G.AddText("x" (PAD+5) " y+5 c" FG, "ช่วงเวลา (ms):")
 schedulerIntervalCtrl := G.AddEdit("x" (PAD+5) " y+3 w100 h22 Background" BG2 " c" FG, "5000")
 
 btnStartScheduler := G.AddButton("x" (PAD+110) " y" (PAD+128) " w80 h22 +0x200 c" GRN, "▶เริ่มต้น")
-btnStartScheduler.OnEvent("คลิก", StartScheduler)
+btnStartScheduler.OnEvent("Click", StartScheduler)
 
-btnStopScheduler := G.AddButton("x+5 yp w80 h22 +0x200 c" RED, "⏹ถ่ายทอดสด")
+btnStopScheduler := G.AddButton("x+5 yp w80 h22 +0x200 c" RED, "⏹หยุด")
 btnStopScheduler.OnEvent("Click", StopScheduler)
 
 G.AddText("x" (PAD+5) " y+10 c" GRN, "⏸ปิดอยู่")
@@ -342,51 +401,54 @@ schedulerStatus := G.AddText("x" (PAD+5) " y+0 c" GRN)
 
 ; ════════════════════════════════════════
 ; แท็บ: สถิติ
-; ══════════════════════════════════════════
+; ════════════════════════════════════════
 G.SetFont("s10 Bold c" GRN, "Segoe UI")
 statsCountCtrl := G.AddText("x" (PAD+10) " y" (PAD+105) " w400 h30 Background" BG2 " c" GRN, "📊 ส่งทั้งหมด: 0 ทั้งหมด")
 statsSuccessCtrl := G.AddText("x" (PAD+10) " y+5 w400 h30 Background" BG2 " c" GRN, "✅ สำเร็จ : 0 เท่านั้น")
-statsFailCtrl := G.AddText("x" (PAD+10) " y+5 w400 h30 Background" BG2 " c" RED, "❌ ตอนนี้: 0 จริง")
+statsFailCtrl := G.AddText("x" (PAD+10) " y+5 w400 h30 Background" BG2 " c" RED, "❌ ล้มเหลว: 0")
 statsRateCtrl := G.AddText("x" (PAD+10) " y+5 w400 h30 Background" BG2 " c" YEL,"📈 อัตราสำเร็จ: 0%")
 
 btnResetStats := G.AddButton("x" (PAD+10) " y+5 w100 h25 +0x200 c" RED, "🔄 รีเซต")
 btnResetStats.OnEvent("Click", ResetStats)
 
-; ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี TAB: ประวัติศาสตร์
+; ════════════════════════════════════════
+; แท็บ: ประวัติ
 ; ════════════════════════════════════════
 G.SetFont("s8", "Consolas")
 historyBox := G.AddEdit("x" (PAD+5) " y" (PAD+105) " w" (COMP_W-10) " h180 ReadOnly -Wrap +0x200000 Background" BG2 " c" GRN)
 
-btnClearHistory := G.AddButton("x" (PAD+5) " y+5 w100 h25 +0x200 c" RED, "🗑️ซักประวัติ")
+btnClearHistory := G.AddButton("x" (PAD+5) " y+5 w100 h25 +0x200 c" RED, "🗑️ล้างประวัติ")
 btnClearHistory.OnEvent("Click", ClearHistory)
 
 btnExportHistory := G.AddButton("x+5 yp w100 h25 +0x200 c" CYN, "💾 ส่งออก")
-btnExportHistory.OnEvent("คลิก", ExportHistory)
+btnExportHistory.OnEvent("Click", ExportHistory)
 
 ; ════════════════════════════════════════
 ; แท็บ: การตั้งค่า
-; 4.0.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2562 "🔐จำเป็นด้วยรหัสผ่าน:")
+; ════════════════════════════════════════
+G.SetFont("s8.5 Bold", "Segoe UI")
+G.AddText("x" (PAD+5) " y" (PAD+100) " c" FG2, "🔐 จำเป็นด้วยรหัสผ่าน:")
 passwordEnableCtrl := G.AddCheckbox("x" (PAD+5) " y+3 w20 h20", "")
 passwordEnableCtrl.OnEvent("Click", TogglePassword)
 
 G.SetFont("s8 c" FG, "Segoe UI")
-G.AddText("x" (PAD+30) " y" (PAD+105) " c" FG, "การสื่อสาร:")
+G.AddText("x" (PAD+30) " y" (PAD+105) " c" FG, "รหัสผ่าน:")
 passwordCtrl := G.AddEdit("x" (PAD+30) " y+3 w150 h20 Background" BG2 " c" FG " Password")
 
 G.AddText("x" (PAD+5) " y+10 c" FG, "⚙️ การติดตั้ง Hotkey:")
 G.AddText("x" (PAD+5) " y+3 c" FG, "F1 (ส่ง):")
 hotkeyF1Ctrl := G.AddEdit("x+50 yp w80 h20 Background" BG2 " c" FG, "F1")
 
-G.AddText("x" (PAD+5) " y+5 c" FG, "F6 ( บันทึกการตั้งค่า):")
+G.AddText("x" (PAD+5) " y+5 c" FG, "F6 (บันทึกการตั้งค่า):")
 hotkeyF6Ctrl := G.AddEdit("x+50 yp w80 h20 Background" BG2 " c" FG, "F6")
 
-G.AddText("x" (PAD+5) " y+5 c" FG, "F2 ( บันทึก):")
+G.AddText("x" (PAD+5) " y+5 c" FG, "F2 (บันทึก):")
 hotkeyF2Ctrl := G.AddEdit("x+50 yp w80 h20 Background" BG2 " c" FG, "F2")
 
 btnSaveSettings := G.AddButton("x" (PAD+5) " y+10 w100 h25 +0x200 c" GRN, "💾 บันทึก")
 btnSaveSettings.OnEvent("Click", SaveSettings)
 
-btnResetHotkeys := G.AddButton("x+5 yp w100 h25 +0x200 c" RED, "🔄 ไฟล์")
+btnResetHotkeys := G.AddButton("x+5 yp w100 h25 +0x200 c" RED, "🔄 รีเซต")
 btnResetHotkeys.OnEvent("Click", ResetHotkeys)
 
 ; ════════════════════════════════════════
@@ -404,7 +466,8 @@ WinSetTransparent(235, G.Hwnd)
 
 ShowTab("main")
 
-; ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี ฟังก์ชั่นการจัดการ UI
+; ════════════════════════════════════════
+; ฟังก์ชั่นการจัดการ UI
 ; ════════════════════════════════════════
 
 ShowTab(tabName) {
@@ -421,7 +484,7 @@ ToggleTheme(*) {
 
 ; ════════════════════════════════════════
 ; ฟังก์ชันตัวจัดตารางเวลา
-; ═════════════════════════════════════════
+; ════════════════════════════════════════
 
 ToggleScheduler(GuiCtrlObj, Info) {
  global schedulerEnabled
@@ -432,33 +495,33 @@ StartScheduler(*) {
  global isSchedulerRunning, schedulerIntervalCtrl, schedulerStatus
  
  if isSchedulerRunning {
- Flash("⚠️ เวลาเปิดจริงๆ")
- return
+  Flash("⚠️ ตัวจัดเวลากำลังทำงานอยู่แล้ว")
+  return
  }
  
  isSchedulerRunning := true
- ช่วง := Integer(schedulerIntervalCtrl.Value)
+ interval := Integer(schedulerIntervalCtrl.Value)
  if (interval < 100)
- ช่วง := 100
+  interval := 100
  
- schedulerStatus.Value := "▶ ต่อไป..."
+ schedulerStatus.Value := "▶ กำลังทำงาน..."
  schedulerStatus.SetFont("c" GRN)
  
- AddLog("เริ่มตั้งเวลา: " ช่วง "ms")
+ AddLog("⏰ เริ่มตั้งเวลา: " interval "ms")
  
- SetTimer SchedulerTick, ช่วง
+ SetTimer SchedulerTick, interval
 }
 
 SchedulerTick() {
  global followers, isSending
  if (followers.Length == 0)
- return
+  return
  if !isSending
- ManualSendAction()
+  ManualSendAction()
 }
 
 StopScheduler(*) {
- global isSchedulerRunning, สถานะกำหนดการ
+ global isSchedulerRunning, schedulerStatus
  
  isSchedulerRunning := false
  SetTimer SchedulerTick, 0
@@ -466,23 +529,28 @@ StopScheduler(*) {
  schedulerStatus.Value := "⏸ ปิดอยู่"
  schedulerStatus.SetFont("c" RED)
  
- AddLog("⏰ตั้งเวลาออกอากาศ")
+ AddLog("⏰ หยุดตั้งเวลาแล้ว")
 }
 
-; ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี ฟังก์ชั่นสถิติ
-; ระบายสี ระบายสี ระบายสี ระบายสี ระบายสี statsCountCtrl.Value := "📊 ส่งทั้งหมด: " sendStats.count " จริง"
- statsSuccessCtrl.Value := "✅ สำเร็จ: " sendStats.success "ส่วน"
- statsFailCtrl.Value := "❌ โครงสร้าง: " sendStats.failed "ส่วนภายนอก"
+; ════════════════════════════════════════
+; ฟังก์ชั่นสถิติ
+; ════════════════════════════════════════
+
+UpdateStats() {
+ global sendStats, statsCountCtrl, statsSuccessCtrl, statsFailCtrl, statsRateCtrl, statsDisplay
+ statsCountCtrl.Value := "📊 ส่งทั้งหมด: " sendStats.count " ครั้ง"
+ statsSuccessCtrl.Value := "✅ สำเร็จ: " sendStats.success " ครั้ง"
+ statsFailCtrl.Value := "❌ ล้มเหลว: " sendStats.failed " ครั้ง"
  
- อัตรา := (sendStats.count = 0) ? 0 : Round((sendStats.success / sendStats.count) * 100)
- statsRateCtrl.Value := "📈 อัตราสำเร็จ: " อัตรา "%"
+ rate := (sendStats.count = 0) ? 0 : Round((sendStats.success / sendStats.count) * 100)
+ statsRateCtrl.Value := "📈 อัตราสำเร็จ: " rate "%"
  
  statsDisplay.Value := "✓" sendStats.success " ✗" sendStats.failed
 }
 
 ResetStats(*) {
  global sendStats
- sendStats := {count: 0, Success: 0, failed: 0}
+ sendStats := {count: 0, success: 0, failed: 0}
  AddLog("🔄 รีเซ็ตสถิติแล้ว")
 }
 
@@ -493,23 +561,31 @@ ResetStats(*) {
 ClearHistory(*) {
  global sendHistory, HISTORY_FILE, historyBox
  sendHistory := []
- if FileExist(HISTORY_FILE)
- FileDelete(HISTORY_FILE)
- historyBox.ค่า := ""
+ try {
+  DeleteIfExists(HISTORY_FILE)
+ } catch as err {
+  AddLog("⚠️ ClearHistory error: " err.Message)
+ }
+ historyBox.Value := ""
  AddLog("🗑️ ล้างประวัติแล้ว")
 }
 
 ExportHistory(*) {
  global sendHistory
  
- filepath := A_MyDocuments "\send_history_" FormatTime(, "yyyyMMdd_HHmmss") ".txt"
+ filepath := A_MyDocuments "\send_history_" Timestamp("yyyyMMdd_HHmmss") ".txt"
  content := ""
  for entry in sendHistory
- content .= entry "`r`n"
+  content .= entry "`r`n"
  
- FileAppend(content, filepath, "UTF-8")
- AddLog("💾 ส่งออกประวัติ: " filepath)
- Flash("✅ ส่งออกสำเร็จ!")
+ try {
+  FileAppend(content, filepath, "UTF-8")
+  AddLog("💾 ส่งออกประวัติ: " filepath)
+  Flash("✅ ส่งออกสำเร็จ!")
+ } catch as err {
+  AddLog("⚠️ ExportHistory error: " err.Message)
+  Flash("❌ ส่งออกล้มเหลว: " err.Message)
+ }
 }
 
 ; ════════════════════════════════════════
@@ -525,19 +601,21 @@ SaveSettings(*) {
  global customHotkeys, hotkeyF1Ctrl, hotkeyF6Ctrl, hotkeyF2Ctrl, HOTKEY_FILE
  
  try {
- if FileExist(HOTKEY_FILE)
- FileDelete(HOTKEY_FILE)
- 
- IniWrite("3", HOTKEY_FILE, "Hotkeys", "count")
- IniWrite(hotkeyF1Ctrl.Value, HOTKEY_FILE, "Hotkeys", "key1")
- IniWrite("ManualSendAction", HOTKEY_FILE, "Hotkeys", "action1")
- IniWrite(hotkeyF6Ctrl.Value, HOTKEY_FILE, "Hotkeys", "key2")
- IniWrite("AddFollower", HOTKEY_FILE, "Hotkeys", "action2")
- IniWrite(hotkeyF2Ctrl.Value, HOTKEY_FILE, "Hotkeys", "key3")
- IniWrite("EmergencyStop", HOTKEY_FILE, "Hotkeys", "action3")
- 
- AddLog("💾 บันทึกการรับ Hotkey สำเร็จ")
- Flash("✅บันทึกความสำเร็จ!")
+  DeleteIfExists(HOTKEY_FILE)
+  
+  IniWrite("3", HOTKEY_FILE, "Hotkeys", "count")
+  IniWrite(hotkeyF1Ctrl.Value, HOTKEY_FILE, "Hotkeys", "key1")
+  IniWrite("ManualSendAction", HOTKEY_FILE, "Hotkeys", "action1")
+  IniWrite(hotkeyF6Ctrl.Value, HOTKEY_FILE, "Hotkeys", "key2")
+  IniWrite("AddFollower", HOTKEY_FILE, "Hotkeys", "action2")
+  IniWrite(hotkeyF2Ctrl.Value, HOTKEY_FILE, "Hotkeys", "key3")
+  IniWrite("EmergencyStop", HOTKEY_FILE, "Hotkeys", "action3")
+  
+  AddLog("💾 บันทึก Hotkey สำเร็จ")
+  Flash("✅ บันทึกสำเร็จ!")
+ } catch as err {
+  AddLog("⚠️ SaveSettings error: " err.Message)
+  Flash("❌ บันทึกล้มเหลว: " err.Message)
  }
 }
 
@@ -546,7 +624,7 @@ ResetHotkeys(*) {
  hotkeyF1Ctrl.Value := "F1"
  hotkeyF6Ctrl.Value := "F6"
  hotkeyF2Ctrl.Value := "F2"
- AddLog("🔄 รีเซ็ต Hotkey เป็นผล")
+ AddLog("🔄 รีเซ็ต Hotkey เป็นค่าเริ่มต้น")
 }
 
 ; ════════════════════════════════════════
@@ -555,14 +633,14 @@ ResetHotkeys(*) {
 
 UpdateClock() {
  global clockDisplay
- clockDisplay.Value := FormatTime(, "HH:mm:ss")
+ clockDisplay.Value := Timestamp("HH:mm:ss")
 }
 
 BlinkLED() {
  global blinkState, statusDot, isSending, YEL, BG
  if !isSending {
- SetTimer BlinkLED, 0 
- return
+  SetTimer BlinkLED, 0 
+  return
  }
  blinkState := !blinkState
  statusDot.SetFont(blinkState ? "c" YEL : "c" BG)
@@ -571,61 +649,61 @@ BlinkLED() {
 FetchGeoIP() {
  global ipGeoDisplay
  try {
- whr := ComObject("WinHttp.WinHttpRequest.5.1")
- whr.Open("GET", "http://ip-api.com/json/?fields=status,countryCode,regionName,query", true)
- whr.Send()
- whr.WaitForResponse(5)
- if (whr.Status == 200) {
- res := whr.ResponseText
- if InStr(res, '"status":"success"') {
- RegExMatch(res, '"query":"([^"]+)"', &matchIp)
- RegExMatch(res, '"countryCode":"([^"]+)"', &matchCountry)
- RegExMatch(res, '"regionName":"([^"]+)"', &matchRegion)
- ipGeoDisplay.Value := (matchIp ​​? matchIp[1] : "Unknown") " [" (matchCountry ? matchCountry[1] : "—") "/" (matchRegion ? matchRegion[1] : "—") "]"
- return
- }
- }
- ipGeoDisplay.Value := "⚠️ ไม่พบข้อมูล"
- } catch {
- ipGeoDisplay.Value := "⚠️ อันตราย"
+  whr := HttpGet("http://ip-api.com/json/?fields=status,countryCode,regionName,query")
+  if (whr.Status == 200) {
+   res := whr.ResponseText
+   if InStr(res, '"status":"success"') {
+    RegExMatch(res, '"query":"([^"]+)"', &matchIp)
+    RegExMatch(res, '"countryCode":"([^"]+)"', &matchCountry)
+    RegExMatch(res, '"regionName":"([^"]+)"', &matchRegion)
+    ipGeoDisplay.Value := (matchIp ? matchIp[1] : "Unknown") " [" (matchCountry ? matchCountry[1] : "—") "/" (matchRegion ? matchRegion[1] : "—") "]"
+    return
+   }
+  }
+  ipGeoDisplay.Value := "⚠️ ไม่พบข้อมูล IP (HTTP " whr.Status ")"
+ } catch as err {
+  ipGeoDisplay.Value := "⚠️ เครือข่ายผิดพลาด"
+  AddLog("⚠️ FetchGeoIP error: " err.Message)
  }
 }
 
 InitNetworkCounter() {
  global lastInBytes, lastOutBytes, wmiService
  try {
- wmiService := ComObjGet("winmgmts:")
- for obj in wmiService.ExecQuery("Select BytesReceivedPersec, BytesSentPersec From Win32_PerfRawData_Tcpip_NetworkInterface") {
- lastInBytes += Integer(obj.BytesReceivedPersec)
- lastOutBytes += Integer(obj.BytesSentPersec)
- }
- } catch {
- lastInBytes := 0
- lastOutBytes := 0
+  wmiService := ComObjGet("winmgmts:")
+  for obj in wmiService.ExecQuery("Select BytesReceivedPersec, BytesSentPersec From Win32_PerfRawData_Tcpip_NetworkInterface") {
+   lastInBytes += Integer(obj.BytesReceivedPersec)
+   lastOutBytes += Integer(obj.BytesSentPersec)
+  }
+ } catch as err {
+  OutputDebug("⚠️ InitNetworkCounter error: " err.Message)
+  lastInBytes := 0
+  lastOutBytes := 0
  }
 }
 
 UpdateNetworkSpeed() {
  global lastInBytes, lastOutBytes, netSpeedDisplay, wmiService
  currentIn := 0, currentOut := 0
- ลอง {
- ถ้า !wmiService
- wmiService := ComObjGet("winmgmts:")
- สำหรับ obj ใน wmiService.ExecQuery("Select BytesReceivedPersec, BytesSentPersec From Win32_PerfRawData_Tcpip_NetworkInterface") {
- currentIn += Integer(obj.BytesReceivedPersec)
- currentOut += Integer(obj.BytesSentPersec)
+ try {
+  if !wmiService
+   wmiService := ComObjGet("winmgmts:")
+  for obj in wmiService.ExecQuery("Select BytesReceivedPersec, BytesSentPersec From Win32_PerfRawData_Tcpip_NetworkInterface") {
+   currentIn += Integer(obj.BytesReceivedPersec)
+   currentOut += Integer(obj.BytesSentPersec)
+  }
+ } catch as err {
+  AddLog("⚠️ UpdateNetworkSpeed error: " err.Message)
+  return
  }
- } catch {
- ส่งคืน
- }
- ถ้า (lastInBytes = 0 && lastOutBytes = 0) {
- lastInBytes := currentIn, lastOutBytes := currentOut
- ส่งคืน
+ if (lastInBytes = 0 && lastOutBytes = 0) {
+  lastInBytes := currentIn, lastOutBytes := currentOut
+  return
  }
  diffIn := currentIn - lastInBytes, diffOut := currentOut - lastOutBytes
- ถ้า (diffIn < 0 || diffOut < 0) {
- lastInBytes := currentIn, lastOutBytes := currentOut
- return
+ if (diffIn < 0 || diffOut < 0) {
+  lastInBytes := currentIn, lastOutBytes := currentOut
+  return
  }
  netSpeedDisplay.Value := "⬇ " FormatBytes(diffIn) " • ⬆ " FormatBytes(diffOut)
  lastInBytes := currentIn, lastOutBytes := currentOut
@@ -633,37 +711,37 @@ UpdateNetworkSpeed() {
 
 FormatBytes(bytes) {
  if (bytes > 1048576)
- return Round(bytes / 1048576, 1) " MB/s"
+  return Round(bytes / 1048576, 1) " MB/s"
  else if (bytes > 1024)
- return Round(bytes / 1024, 1) " KB/s"
+  return Round(bytes / 1024, 1) " KB/s"
  else
- return bytes " B/s"
+  return bytes " B/s"
 }
 
 ; ════════════════════════════════════════
-; 🎯 ฟังก์ชั่นพื้นที่ทำงานและการจัดเรียง (แก้ไขแล้ว!)
+; 🎯 ฟังก์ชั่นพื้นที่ทำงานและการจัดเรียง
 ; ════════════════════════════════════════
 
 AddFollower(*) {
- ผู้ติดตามทั่วโลก
+ global followers
  MouseGetPos(,, &hw)
- ถ้า !hw
- ส่งคืน
+ if !hw
+  return
  id := "ahk_id " hw
- for v in allowances
- if (v = id) {
- Flash("⚠️มีจอนี้อย่าง")
- return
- }
- allowances.Push(id)
+ for v in followers
+  if (v = id) {
+   Flash("⚠️ มีจอนี้อยู่แล้ว")
+   return
+  }
+ followers.Push(id)
  SaveConfig()
  UpdateStatusLabel()
- Flash("✅ต่อไปทำสำเร็จ")
+ Flash("✅ เพิ่มจอสำเร็จ")
 }
 
 ClearFollowers(*) {
- global allowances, currentWinIdx
- follower := []
+ global followers, currentWinIdx
+ followers := []
  currentWinIdx := 1
  SaveConfig()
  UpdateStatusLabel()
@@ -671,57 +749,64 @@ ClearFollowers(*) {
 }
 
 UpdateStatusLabel() {
- global allowances, currentWinIdx
+ global followers, currentWinIdx
  if (followers.Length == 0)
- SetStatus("คิวว่าง | กด F6 ชี้เพิ่มหน้าต่าง", "EF4444")
+  SetStatus("คิวว่าง | กด F6 ชี้เพิ่มหน้าต่าง", "EF4444")
  else
- SetStatus("บันทึกไว้ " followers.Length " จอ (กลุ่มเป้าหมายถัดไป: จอที่ " currentWinIdx ")", "10B981")
+  SetStatus("บันทึกไว้ " followers.Length " จอ (กลุ่มเป้าหมายถัดไป: จอที่ " currentWinIdx ")", "10B981")
 }
 
 ArrangeWindowsFixed(*) {
- global allowances, WIN_W, WIN_H, MARGIN_WIN
+ global followers, WIN_W, WIN_H, MARGIN_WIN
  if (followers.Length == 0) {
- SetStatus("❌ยังไม่ได้กด F6 ล็อกหน้าต่างบราวเซอร์", "EF4444")
- กลับ
+  SetStatus("❌ ยังไม่ได้กด F6 ล็อกหน้าต่าง", "EF4444")
+  return
  }
  
- MonitorGet(1, &M_L, &M_T, &M_R, &M_B)
+ try {
+  MonitorGet(1, &M_L, &M_T, &M_R, &M_B)
+ } catch as err {
+  AddLog("⚠️ MonitorGet error: " err.Message)
+  return
+ }
  
- ; แก้ไข: คำนวณคอลัมน์อย่างถูกต้อง - ไม่ต้องมีแล้วเอาขึ้นมาไม่ได้
  monitorWidth := M_R - M_L
  availableWidth := monitorWidth - (2 * MARGIN_WIN)
- TotalWinWidth := availableWidth + MARGIN_WIN
+ totalWinWidth := availableWidth + MARGIN_WIN
  cols := Floor(totalWinWidth / (WIN_W + MARGIN_WIN))
  if (cols < 1)
- cols := 1
+  cols := 1
  
- ย้ายจำนวน := 0
- สำหรับ idx, id ในผู้ติดตาม {
- if !WinExist(id) {
- AddLog("⚠️ [" idx "] ไม่พบที่นั่น")
- ดำเนินการต่อ
+ movedCount := 0
+ for idx, id in followers {
+  if !WinExist(id) {
+   AddLog("⚠️ [" idx "] หน้าต่างไม่พบ")
+   continue
+  }
+  
+  try {
+   WinRestore(id)
+   Sleep 50
+   
+   colIdx := Mod(movedCount, cols)
+   rowIdx := Floor(movedCount / cols)
+   
+   X := M_L + MARGIN_WIN + (colIdx * (WIN_W + MARGIN_WIN))
+   Y := M_T + MARGIN_WIN + (rowIdx * (WIN_H + MARGIN_WIN))
+   
+   WinMove(X, Y, WIN_W, WIN_H, id)
+   Sleep 30
+   movedCount++
+  } catch as err {
+   AddLog("⚠️ ArrangeWindow [" idx "] error: " err.Message)
+  }
  }
- 
- WinRestore(id)
- Sleep 50
- 
- ; คำนวณตำแหน่งได้อย่างน่าเชื่อถือมากขึ้น - ต่อเนื่องไปจอที่ 2
- colIdx := Mod(movedCount, cols)
- rowIdx := Floor(movedCount / cols)
- 
- X := M_L + MARGIN_WIN + (colIdx * (WIN_W + MARGIN_WIN))
- Y := M_T + MARGIN_WIN + (rowIdx * (WIN_H + MARGIN_WIN))
- 
- WinMove(X, Y, WIN_W, WIN_H, id)
- Sleep 30
-movedCount++
- }
- SetStatus("🧩 ลาด "movedCount "เล็บเรียบร้อย", "06B6D4")
- AddLog("🧩 หน้าจอขนาด " WIN_W "x" WIN_H " (" MoveCount "ในกรุง)")
+ SetStatus("🧩 จัดเรียง " movedCount " จอเรียบร้อย", "06B6D4")
+ AddLog("🧩 จัดเรียง " WIN_W "x" WIN_H " (" movedCount " จอ)")
 }
 
 ; ════════════════════════════════════════
-; 🚀 ระบบส่งข้อความ (แก้ไขแล้ว - ข้อความไม่สูญหาย!)
+; 🚀 ระบบส่งข้อความ
 ; ════════════════════════════════════════
 
 ManualSendAction(*) {
@@ -730,11 +815,11 @@ ManualSendAction(*) {
  global repeatModeCtrl, repeatCountCtrl, randomMinCtrl, randomMaxCtrl
  
  if isSending
- return
+  return
  
  if (followers.Length == 0) {
- SetStatus("❌กด F6 บันทึกหน้าต่างแชทก่อนส่ง!", "EF4444")
- return
+  SetStatus("❌ กด F6 บันทึกหน้าต่างแชทก่อนส่ง!", "EF4444")
+  return
  }
  
  rawTxt := msgEditor.Value
@@ -742,66 +827,68 @@ ManualSendAction(*) {
  
  lines := []
  Loop Parse rawTxt, "`n", "`r" {
-t := Trim(A_LoopField)
- if (t != "")
- lines.Push(t)
+  t := Trim(A_LoopField)
+  if (t != "")
+   lines.Push(t)
  }
  
  if (lines.Length == 0) {
- SetStatus("❌พิมพ์ข้อความก่อนภาพยนตร์!", "EF4444")
- return
+  SetStatus("❌ พิมพ์ข้อความก่อน!", "EF4444")
+  return
  }
 
  ; รับการตั้งค่า
- RepeatMode := RepeatModeCtrl.Value
- RepeatCount := Integer(repeatCountCtrl.Value) ? Integer(repeatCountCtrl.Value) : 1
+ repeatMode := repeatModeCtrl.Value
+ repeatCount := Integer(repeatCountCtrl.Value) ? Integer(repeatCountCtrl.Value) : 1
  randomDelayMin := Integer(randomMinCtrl.Value)
  randomDelayMax := Integer(randomMaxCtrl.Value)
  webhookEnabled := webhookModeCtrl.Value
  webhookURL := webhookURLCtrl.Value
 
- if (currentWinIdx > followers.Length)
- currentWinIdx := 1
+ WrapWinIdx()
  
  targetID := followers[currentWinIdx]
  
  if !WinExist(targetID) {
- AddLog("⚠️ ค้างที่ [" currentWinIdx "] ปิดอยู่.. กำลังข้าม")
- currentWinIdx++
- if (currentWinIdx > followers.Length)
- currentWinIdx := 1
- return
+  AddLog("⚠️ หน้าต่าง [" currentWinIdx "] ปิดอยู่.. กำลังข้าม")
+  currentWinIdx++
+  WrapWinIdx()
+  return
  }
 
  isSending := true
- SetStatus("⚡ กำลังส่งข้อความหา...", "F59E0B")
+ SetStatus("⚡ กำลังส่งข้อความ...", "F59E0B")
  SetTimer BlinkLED, 300
  
- loopCount := RepeatMode ? RepeatCount : 1
- ChosenMsg := ""
- Loop loopCount {
- currentLoop := A_Index
- ChosenMsg := lines[Random(1, lines.Length)]
- shortMsg := StrLen(chosenMsg) > 20 ? SubStr(chosenMsg, 1, 20) "..." : chosenMsg
+ chosenMsg := ""
+ try {
+  loopCount := repeatMode ? repeatCount : 1
+  Loop loopCount {
+   currentLoop := A_Index
+   chosenMsg := lines[Random(1, lines.Length)]
+   shortMsg := StrLen(chosenMsg) > 20 ? SubStr(chosenMsg, 1, 20) "..." : chosenMsg
 
- SendMessage_Internal(targetID, chosenMsg, currentWinIdx, currentLoop)
- 
- if (currentLoop < loopCount) {
- sleepTime := Random(randomDelayMin, randomDelayMax)
- Sleep sleepTime
- }
- }
- 
- AddLog("✅ ส่งข้อความ [" currentWinIdx "] ส่งข้อความ")
- 
- ; การผสานรวม Webhook
- ถ้า (webhookEnabled && webhookURL != "") {
- SendWebhook(currentWinIdx, chosenMsg, true)
+   SendMessage_Internal(targetID, chosenMsg, currentWinIdx, currentLoop)
+   
+   if (currentLoop < loopCount) {
+    sleepTime := Random(randomDelayMin, randomDelayMax)
+    Sleep sleepTime
+   }
+  }
+  
+  AddLog("✅ ส่งข้อความ [" currentWinIdx "] สำเร็จ")
+  
+  ; Webhook integration
+  if (webhookEnabled && webhookURL != "") {
+   SendWebhook(currentWinIdx, chosenMsg, true)
+  }
+ } catch as err {
+  AddLog("⚠️ ManualSendAction error: " err.Message)
+  SetStatus("❌ ส่งข้อความล้มเหลว: " err.Message, "EF4444")
  }
  
  currentWinIdx++
- ถ้า (currentWinIdx > followers.Length)
- currentWinIdx := 1
+ WrapWinIdx()
  
  UpdateStatusLabel()
  isSending := false
@@ -810,37 +897,39 @@ t := Trim(A_LoopField)
 SendMessage_Internal(targetID, chosenMsg, windowIdx, loopNum) {
  global sendStats
  
- ส่ง "{ShiftUp}{CtrlUp}{AltUp}{LButtonUp}"
- รอ 50 วินาที
+ Send "{ShiftUp}{CtrlUp}{AltUp}{LButtonUp}"
+ Sleep 50
 
  WinActivate(targetID)
- ถ้า !WinWaitActive(targetID,, 2) {
- AddToHistory(windowIdx, chosenMsg, false)
- sendStats.failed++
- ส่งคืน
+ if !WinWaitActive(targetID,, 2) {
+  AddLog("⚠️ WinWaitActive timeout [" windowIdx "] loop " loopNum)
+  AddToHistory(windowIdx, chosenMsg, false)
+  sendStats.failed++
+  return
  }
- พัก 80 วินาที
+ Sleep 80
 
  ; ล้างข้อความเก่า
- ส่ง "^a"
- พัก 40 วินาที
- ส่ง "{Backspace}"
- พัก 40 วินาที
+ Send "^a"
+ Sleep 40
+ Send "{Backspace}"
+ Sleep 40
 
- ; 🔥 วิธีการใช้คลิปบอร์ด - รับประกันไม่สูญหาย (ข้อความไม่สูญหาย)
+ ; วิธีการใช้คลิปบอร์ด
  oldClip := ClipboardAll()
  A_Clipboard := ""
  A_Clipboard := chosenMsg
  
  if ClipWait(1) {
- ส่ง "^v"
- พัก 100 วินาที
- ส่ง "{Enter}"
- พัก 100 วินาที
- 
- AddToHistory(windowIdx, chosenMsg, true)
+  Send "^v"
+  Sleep 100
+  Send "{Enter}"
+  Sleep 100
+  
+  AddToHistory(windowIdx, chosenMsg, true)
  } else {
- AddToHistory(windowIdx,chosenMsg, false)
+  AddLog("⚠️ ClipWait timeout [" windowIdx "] loop " loopNum)
+  AddToHistory(windowIdx, chosenMsg, false)
  }
  
  A_Clipboard := oldClip
@@ -850,13 +939,15 @@ SendMessage_Internal(targetID, chosenMsg, windowIdx, loopNum) {
 SendWebhook(windowIdx, message, success) {
  global webhookURL
  try {
- whr := ComObject("WinHttp.WinHttpRequest.5.1")
- whr.Open("POST", webhookURL, true)
- whr.SetRequestHeader("Content-Type", "application/json")
- 
- payload := '{"window":' windowIdx ',"message":"' StrReplace(message, """", "\""") '","success":' (success ? "true" : "false") ',"timestamp":"' FormatTime(, "yyyy-MM-dd HH:mm:ss") '"}'
- whr.Send(payload)
- whr.WaitForResponse(3)
+  escapedMsg := StrReplace(message, '"', '\"')
+  payload := '{"window":' windowIdx ',"message":"' escapedMsg '","success":' (success ? "true" : "false") ',"timestamp":"' Timestamp() '"}'
+  whr := HttpPost(webhookURL, payload,, 3)
+  
+  if (whr.Status != 200) {
+   AddLog("⚠️ Webhook HTTP " whr.Status " for window " windowIdx)
+  }
+ } catch as err {
+  AddLog("⚠️ SendWebhook error: " err.Message)
  }
 }
 
@@ -864,7 +955,7 @@ EmergencyStop(*) {
  global isSending
  isSending := false
  SetStatus("🛑 EMERGENCY STOPPED", "EF4444")
- AddLog("🛑 หยุดฉุกเฉิน หยุด\)
+ AddLog("🛑 หยุดฉุกเฉิน!")
 }
 
 SetStatus(txt, col) {
@@ -877,7 +968,7 @@ SetStatus(txt, col) {
 AddLog(txt) {
  global logBox
  current := logBox.Value
- logBox.Value := current "[" FormatTime(,"HH:mm:ss") "] " txt "`r`n"
+ logBox.Value := current "[" Timestamp("HH:mm:ss") "] " txt "`r`n"
  SendMessage(0x115, 7, 0, logBox.Hwnd)
 }
 
@@ -888,51 +979,7 @@ Flash(txt) {
 
 ; ════════════════════════════════════════
 ; ⌨️ ปุ่มลัด
-; ═════════════════════════════════════════
-$F1::ManualSendAction() 
-$F2::EmergencyStop() 
-F4::ExitApp() 
-F6::AddFollower()
-",SetFont("c" col)
-}
-
-AddLog(txt) {
- global logBox
- current := logBox.Value
- logBox.Value := current "[" FormatTime(,"HH:mm:ss") "] " txt "`r`n"
- SendMessage(0x115, 7, 0, logBox.Hwnd)
-}
-
-Flash(txt) {
- ToolTip txt
- SetTimer () => ToolTip(), -2000
-}
-
 ; ════════════════════════════════════════
-; ⌨️ ปุ่มลัด
-; ═════════════════════════════════════════
-$F1::ManualSendAction() 
-$F2::EmergencyStop() 
-F4::ExitApp() 
-F6::AddFollower()
-",SetFont("c" col)
-}
-
-AddLog(txt) {
- global logBox
- current := logBox.Value
- logBox.Value := current "[" FormatTime(,"HH:mm:ss") "] " txt "`r`n"
- SendMessage(0x115, 7, 0, logBox.Hwnd)
-}
-
-Flash(txt) {
- ToolTip txt
- SetTimer () => ToolTip(), -2000
-}
-
-; ════════════════════════════════════════
-; ⌨️ ปุ่มลัด
-; ═════════════════════════════════════════
 $F1::ManualSendAction() 
 $F2::EmergencyStop() 
 F4::ExitApp() 
